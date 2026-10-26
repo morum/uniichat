@@ -70,8 +70,9 @@ import * as config from "./Config.ts";
 type Variant = { head: string; efforts: string[]; fast: boolean };
 
 // what runs it: the executable, the sandbox, the silences that stop a
-// turn (ms), the grace a stop gives before SIGKILL (ms)
-type Setup = { bin: string; sandbox: string; first: number; idle: number; grace: number };
+// turn (ms), the grace a stop gives before SIGKILL (ms); the real path
+// of /etc/resolv.conf, if told (tests: one right in /run), else read
+type Setup = { bin: string; sandbox: string; first: number; idle: number; grace: number; resolved?: string | null };
 
 // a call's dir: its workspace (the CLI's cwd), its CLI config
 type Room = { dir: string; work: string; conf: string };
@@ -119,7 +120,26 @@ const NO_BIN = "o cursor precisa do Cursor CLI: instale-o (curl https://cursor.c
 
 const NO_BWRAP = "o cursor roda o Cursor CLI no bubblewrap, que não está instalado aqui: instale o bwrap, ou defina cursor_sandbox como off";
 
-const STALLED = "the AI service went silent (Cursor CLI)";
+// a call ended by its CLI's silence: BUSY's sense, and why, said whole
+// in pt-BR (BUSY itself, Agent.ts's, is every vendor's, in English)
+const STALLED = "o serviço de IA está ocupado ou indisponível no momento: o Cursor CLI ficou em silêncio e foi interrompido";
+
+// what a turn its CLI went silent in, and is asked to go on, logs
+const SILENT = "O serviço de IA ficou em silêncio: vou pedir que continue.";
+
+// a call stopped: its end's text, and the mark on what it had shown
+const STOPPED = "interrompido";
+
+// a tool of ours that answered nothing
+const NO_OUTPUT = "(sem saída)";
+
+// the CLI not run: its executable gone (the shell's exit 127, as
+// /bin/sh -c exec runs it), not executable (126), or its launcher's
+// interpreter missing (bash: 126, "bad interpreter"; others: 127); in
+// bwrap, its execvp failing (exit 1, "bwrap: execvp ...").
+// A spawn's own error (ENOENT) almost never happens: what is spawned is
+// /bin/sh, which is there, so this is how a missing CLI shows
+const NOT_RUN = "o Cursor CLI não foi encontrado ou não pôde ser executado";
 
 // the CLI's models (Pick.ts ids) and what it calls each at an effort
 const VARIANTS: Record<string, Variant> = {
@@ -355,7 +375,7 @@ export namespace Cursor {
   // socket nss-resolve asks); none if it isn't
   export function resolver(): string[] {
     try {
-      return Cursor.resolver_of(fs.realpathSync("/etc/resolv.conf"));
+      return Cursor.resolver_of(SETUP.resolved ?? fs.realpathSync("/etc/resolv.conf"));
     } catch {
       return [];
     }
@@ -398,7 +418,7 @@ export namespace Cursor {
       wake.poke();
     };
     const stop = () => {
-      end.text = "stopped";
+      end.text = STOPPED;
       abort.abort();
     };
     const done = Cursor.run(ask, on, sent, abort.signal, wake).then(
@@ -502,11 +522,11 @@ export namespace Cursor {
           }
           if (session !== null && stalls === 0) {
             stalls += 1;
-            log({ $: "Entry", kind: "mind", text: "The AI service went silent: asking it to go on." });
+            log({ $: "Entry", kind: "mind", text: SILENT });
             next = AGAIN_ON;
             continue;
           }
-          return { text: BUSY + " (" + STALLED + ")", stop: "down", off: true, acted: acted.v };
+          return { text: STALLED, stop: "down", off: true, acted: acted.v };
         }
         if (got.limit !== undefined) {
           n += 1;
@@ -544,8 +564,10 @@ export namespace Cursor {
       if (used.runs > 0) {
         console.error("cursor: " + model + ": " + used.runs + " run" + (used.runs > 1 ? "s" : "") + ", tokens in " + used.input + ", out " + used.output + ", cache read " + used.read + ", written " + used.write);
       }
+      // what it had shown, logged marked as cut short (as Agent.fail
+      // marks it, but in pt-BR)
       if (signal.aborted) {
-        Agent.fail("stopped", seen).entries.forEach((e) => on({ $: "Entry", ...e }));
+        seen.filter((e) => e.text.trim() !== "").forEach((e) => on({ $: "Entry", kind: e.kind, text: e.text.trim() + "\n[" + STOPPED + "]" }));
       }
     }
   }
@@ -594,7 +616,7 @@ export namespace Cursor {
   // what a turn's failure (its words, as it printed them) is: a usage
   // limit, a sign-in missing, every call's (off), or this one's
   export function failure(text: string): Turn {
-    const why = text.replace(/\x1b\[[0-9;]*m/g, "").trim() || "the Cursor CLI ended without an answer";
+    const why = text.replace(/\x1b\[[0-9;]*m/g, "").trim() || "o Cursor CLI terminou sem responder";
     if (UNSIGNED.test(why)) {
       return { text: SIGN_IN };
     }
@@ -669,12 +691,17 @@ export namespace Cursor {
       }
       const code = await exit;
       if (failed.why !== null) {
-        return { text: "o Cursor CLI não pôde ser executado: " + failed.why, session };
+        // (almost never: /bin/sh is what is spawned; see NOT_RUN)
+        return { text: NOT_RUN + ": " + failed.why, session };
       }
       if (got?.ok === true) {
         return { ...got, session };
       }
-      const words = [got?.text ?? "", noise.join("").trim()].filter((w) => w !== "").join("\n");
+      const said = noise.join("").trim();
+      if (got === null && session === undefined && (code === 127 || code === 126 || /^bwrap: execvp /m.test(said))) {
+        return { text: NOT_RUN + " (código de saída " + code + ")" + (said === "" ? "" : ": " + Cursor.clip(said.replace(/\s+/g, " "), 300)), session };
+      }
+      const words = [got?.text ?? "", said].filter((w) => w !== "").join("\n");
       if (words === "") {
         return { text: "o Cursor CLI terminou sem responder (código de saída " + code + ")", session, died: session === undefined };
       }
@@ -774,7 +801,17 @@ export namespace Cursor {
       return name;
     }
     const one = what.replace(/\s+/g, " ").trim();
-    return name + " " + (one.length > CALLED ? one.slice(0, CALLED) + "…" : one);
+    return name + " " + Cursor.clip(one, CALLED);
+  }
+
+  // `s` cut to `n` UTF-16 code units, "…" after, never between the two
+  // halves of a surrogate pair (an emoji's): one would show as "�"
+  export function clip(s: string, n: number): string {
+    if (s.length <= n) {
+      return s;
+    }
+    const high = n > 0 && /[\uD800-\uDBFF]/.test(s[n - 1]);
+    return s.slice(0, high ? n - 1 : n) + "…";
   }
 
   // a tool call's result as text: an MCP tool's content, else an error
@@ -782,21 +819,21 @@ export namespace Cursor {
   export function back(r: any): string {
     if (r?.success?.content !== undefined && Array.isArray(r.success.content)) {
       const text = r.success.content.map((p: any) => p?.text?.text ?? p?.text ?? "[" + Object.keys(p ?? {})[0] + "]").join("\n");
-      return (r.success.isError === true ? "error: " : "") + (text || "(no output)");
+      return (r.success.isError === true ? "error: " : "") + (text || NO_OUTPUT);
     }
     if (r?.error !== undefined) {
-      if (r.error.errorMessage !== undefined && r.error.errorMessage !== null) {
-        return "error: " + r.error.errorMessage;
+      // (its error may be null: no message, nor anything to read one from)
+      const said = r.error?.errorMessage;
+      if (said !== undefined && said !== null) {
+        return "error: " + said;
       }
       // its whole error, clipped as a call is (CALLED chars)
-      const json = JSON.stringify(r.error);
-      return "error: " + (json.length > CALLED ? json.slice(0, CALLED) + "…" : json);
+      return "error: " + Cursor.clip(JSON.stringify(r.error), CALLED);
     }
     if (r !== undefined && r !== null && r.success === undefined) {
       return "error: " + Object.keys(r)[0];
     }
-    const json = JSON.stringify(r?.success ?? r ?? null);
-    return json.length > 2000 ? json.slice(0, 2000) + "…" : json;
+    return Cursor.clip(JSON.stringify(r?.success ?? r ?? null), 2000);
   }
 
   // its process ended: SIGTERM to its group, SIGKILL after the grace

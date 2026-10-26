@@ -100,6 +100,10 @@ case "$msg" in
     say "jail"; done_ "RUNUSER=[$ru]|RUN=[$r]|VARLIB=[$vl]|LOCALBIN=[$lb]|DOCKER=$dk|DNS=$dns" ;;
   *MODE:silent*)
     init; say "comecei"; sleep 30 ;;
+  *MODE:partial*)
+    init
+    j '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"meia resposta"}]},"session_id":"'$sid'","timestamp_ms":1}'
+    sleep 30 ;;
   *MODE:slowtool*)
     init
     j '{"type":"tool_call","subtype":"started","call_id":"t1","tool_call":{"mcpToolCall":{"args":{"args":{},"providerIdentifier":"unii","toolName":"shell"}}},"session_id":"'$sid'"}'
@@ -141,6 +145,19 @@ async function call(a: Ask, during?: (t: ReturnType<typeof Cursor.ask>) => void)
 
 const has_bwrap = ["/usr/bin/bwrap", "/bin/bwrap", "/usr/local/bin/bwrap"].some((f) => fs.existsSync(f));
 
+// a /run of its own, faked (unshare -Urm: a user and mount namespace, a
+// tmpfs on /run), to run bwrap in as on a system whose resolv.conf is
+// right in /run; why it can't here, if it can't (the test then skipped,
+// saying so)
+const NEST_SKIP = !has_bwrap
+  ? "sem bwrap instalado"
+  : Bun.spawnSync(["unshare", "-Urm", "sh", "-c", "mount -t tmpfs tmpfs /run"]).exitCode !== 0
+    ? "unshare -Urm (namespace de usuário e de montagem) indisponível aqui"
+    : "";
+if (NEST_SKIP !== "") {
+  console.warn("Cursor.test: o teste do resolv.conf direto em /run foi pulado: " + NEST_SKIP);
+}
+
 beforeAll(() => {
   fs.mkdirSync(path.dirname(BIN), { recursive: true });
   fs.writeFileSync(BIN, FAKE, { mode: 0o755 });
@@ -152,7 +169,7 @@ afterAll(() => {
 });
 
 beforeEach(() => {
-  Cursor.set({ bin: BIN, sandbox: "off", first: 300e3, idle: 600e3, grace: 500 });
+  Cursor.set({ bin: BIN, sandbox: "off", first: 300e3, idle: 600e3, grace: 500, resolved: null });
   Cursor.forget();
 });
 
@@ -275,8 +292,28 @@ describe("a call", () => {
     const used = { input: 0, output: 0, read: 0, write: 0 };
     const cmd = { file: path.join(ROOT, "nao-existe"), args: [], env: {}, cwd: ROOT };
     const end = await Cursor.turn(cmd, "oi", () => {}, () => {}, new AbortController().signal, { v: false }, () => {}, used);
-    expect(end?.text).toStartWith("o Cursor CLI não pôde ser executado: ");
+    expect(end?.text).toStartWith("o Cursor CLI não foi encontrado ou não pôde ser executado: ");
     expect(end?.text).toContain("ENOENT");
+  });
+
+  test("a CLI the shell can't run (exit 127, as /bin/sh -c exec runs it; 126 not executable): not found, in Portuguese, not retried", async () => {
+    const used = { input: 0, output: 0, read: 0, write: 0 };
+    const turn = (file: string) => Cursor.turn(Cursor.umasked({ file, args: [], env: {}, cwd: ROOT }), "oi", () => {}, () => {}, new AbortController().signal, { v: false }, () => {}, used);
+    const gone = await turn(path.join(ROOT, "nao-existe"));
+    expect(gone?.text).toStartWith("o Cursor CLI não foi encontrado ou não pôde ser executado (código de saída 127): ");
+    expect(gone?.died).toBeUndefined();
+    const plain = path.join(ROOT, "sem-x");
+    fs.writeFileSync(plain, "", { mode: 0o644 });
+    expect((await turn(plain))?.text).toStartWith("o Cursor CLI não foi encontrado ou não pôde ser executado (código de saída 126)");
+    // a whole call: an installed launcher whose interpreter is gone
+    const broken = path.join(ROOT, "bin", "quebrado");
+    fs.writeFileSync(broken, "#!/nao/existe/node\n", { mode: 0o755 });
+    Cursor.set({ bin: broken });
+    const { end } = await call(ask("MODE:ok"));
+    expect(end.ok).toBe(false);
+    expect(end.stop).toBeUndefined();
+    // (bash says 126, "bad interpreter"; other shells, 127)
+    expect(end.text).toMatch(/^o Cursor CLI não foi encontrado ou não pôde ser executado \(código de saída 12[67]\): /);
   });
 
   test("a long usage limit with a fallback and no tool run ends (off) for it, naming the reset", async () => {
@@ -325,8 +362,8 @@ describe("a call", () => {
     Cursor.set({ bin: BIN, sandbox: "off", first: 400, idle: 400, grace: 200 });
     const { end, evs } = await call(ask("MODE:silentagain"));
     expect([end.ok, end.stop, end.off]).toEqual([false, "down", true]);
-    expect(end.text).toContain("went silent");
-    expect(evs.filter((e) => e.$ === "Entry" && e.kind === "mind" && /went silent: asking/.test(e.text)).length).toBe(1);
+    expect(end.text).toBe("o serviço de IA está ocupado ou indisponível no momento: o Cursor CLI ficou em silêncio e foi interrompido");
+    expect(evs.filter((e) => e.$ === "Entry" && e.kind === "mind" && e.text === "O serviço de IA ficou em silêncio: vou pedir que continue.").length).toBe(1);
   }, 10000);
 
   test("a short usage limit's mark is the call's: none left in the repo's folder", async () => {
@@ -337,11 +374,18 @@ describe("a call", () => {
 
   test("a stop ends the call at once, its CLI killed, its dir removed", async () => {
     const t0 = Date.now();
-    const { end } = await call(ask("MODE:silent"), (t) => setTimeout(() => t.stop(), 500));
+    const { end, evs } = await call(ask("MODE:silent"), (t) => setTimeout(() => t.stop(), 500));
     expect(end.ok).toBe(false);
-    expect(end.text).toBe("stopped");
+    expect(end.text).toBe("interrompido");
+    expect(evs.some((e) => e.$ === "Entry" && /stopped|cut off/.test((e as any).text))).toBe(false);
     expect(Date.now() - t0).toBeLessThan(5000);
     expect(fs.readdirSync(path.join(config.CURSOR_SUB, "runs"))).toEqual([]);
+  });
+
+  test("a stop mid-reply: what it had shown logged, marked as cut short in Portuguese", async () => {
+    const { end, evs } = await call(ask("MODE:partial"), (t) => setTimeout(() => t.stop(), 500));
+    expect(end.text).toBe("interrompido");
+    expect(evs.filter((e) => e.$ === "Entry").map((e: any) => e.kind + ":" + e.text)).toEqual(["unii:meia resposta\n[interrompido]"]);
   });
 
   test("silent past its idle with no tool running: stopped, resumed once, then the call ends (off)", async () => {
@@ -350,14 +394,15 @@ describe("a call", () => {
     // resumed once: the fake answers a resume at once
     expect(end.ok).toBe(true);
     expect(end.text).toContain("RESUMED sess-1: (Your last step was cut short");
-    expect(evs.some((e) => e.$ === "Entry" && e.kind === "mind" && /went silent/.test(e.text))).toBe(true);
+    expect(evs.some((e) => e.$ === "Entry" && e.kind === "mind" && e.text === "O serviço de IA ficou em silêncio: vou pedir que continue.")).toBe(true);
   });
 
   test("silent from the start, twice: the service is down (off)", async () => {
     Cursor.set({ bin: BIN, sandbox: "off", first: 300, idle: 300, grace: 200 });
     const { end } = await call(ask("MODE:silentfirst"));
     expect([end.ok, end.stop, end.off]).toEqual([false, "down", true]);
-    expect(end.text).toContain("went silent");
+    expect(end.text).toContain("ficou em silêncio");
+    expect(end.text).not.toMatch(/busy|silent|unavailable/);
   });
 
   test("a tool of ours running holds no idle watch", async () => {
@@ -491,6 +536,37 @@ describe("isolation", () => {
     expect(Cursor.resolver_of("/runx/resolv.conf")).toEqual([]);
   });
 
+  test("a tool's error null: no TypeError, logged as such", () => {
+    expect(Cursor.back({ error: null })).toBe("error: null");
+    expect(Cursor.back({ error: { errorMessage: null } })).toBe('error: {"errorMessage":null}');
+  });
+
+  test("a tool of ours that answered nothing: said in Portuguese", () => {
+    expect(Cursor.back({ success: { content: [] } })).toBe("(sem saída)");
+    expect(Cursor.back({ success: { content: [], isError: true } })).toBe("error: (sem saída)");
+  });
+
+  test("clipped never between a surrogate pair's halves: an emoji at char 200 kept whole or cut whole", () => {
+    const odd = (s: string) => /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(s);
+    // the emoji's high half is code unit 200 (index 199): a plain slice(0, 200) would split it
+    const long = "x".repeat(199) + "😀" + "y".repeat(50);
+    expect(odd(long.slice(0, 200))).toBe(true);
+    const shell = Cursor.called("shell", { args: { command: long } });
+    expect(odd(shell)).toBe(false);
+    expect(shell).toBe("shell " + "x".repeat(199) + "…");
+    // ('{"d":"' is 6 code units: the emoji's high half again at index 199)
+    const back = Cursor.back({ error: { d: "x".repeat(193) + "😀" + "y".repeat(50) } });
+    expect(odd(JSON.stringify({ d: "x".repeat(193) + "😀" }).slice(0, 200))).toBe(true);
+    expect(odd(back)).toBe(false);
+    expect(back.endsWith("…")).toBe(true);
+    expect(Cursor.clip("ab😀", 3)).toBe("ab…");
+    expect(Cursor.clip("ab😀c", 4)).toBe("ab😀…");
+    expect(Cursor.clip("ab😀", 4)).toBe("ab😀");
+    const big = Cursor.back({ success: { v: "x".repeat(1993) + "😀" + "y".repeat(50) } });
+    expect(odd(big)).toBe(false);
+    expect(big.length).toBe(1999 + 1);
+  });
+
   test("a tool's error without its message logged clipped, as a call is", () => {
     const back = Cursor.back({ error: { detail: "x".repeat(5000) } });
     expect(back.startsWith('error: {"detail":"xxx')).toBe(true);
@@ -541,10 +617,47 @@ describe.skipIf(!has_bwrap)("in bwrap", () => {
     expect(fs.readdirSync(path.join(config.CURSOR_SUB, "runs"))).toEqual([]);
   });
 
+  // B4 (FrostyEel): resolver_of's list alone proved nothing run. Here a
+  // "bwrap" first on the PATH runs the real one in a namespace whose /run
+  // is a tmpfs holding resolv.conf, a session's /run/user/1000/bus and a
+  // docker.sock: the call, run whole, must see of /run only resolv.conf
+  test.skipIf(NEST_SKIP !== "")("a resolv.conf right in /run: that file alone back in the sandbox, not /run/user nor docker.sock (skipped without bwrap or unshare -Urm)", async () => {
+    const real = ["/usr/bin/bwrap", "/bin/bwrap", "/usr/local/bin/bwrap"].find((f) => fs.existsSync(f))!;
+    const dir = path.join(ROOT, "nest");
+    fs.mkdirSync(dir, { recursive: true });
+    const fake_run = "mount -t tmpfs tmpfs /run && mkdir -p /run/user/1000 && : > /run/user/1000/bus && : > /run/docker.sock && echo 'nameserver 127.0.0.53' > /run/resolv.conf && exec \"$0\" \"$@\"";
+    fs.writeFileSync(path.join(dir, "bwrap"), "#!/bin/sh\nexec unshare -Urm /bin/sh -c '" + fake_run.replace(/'/g, "'\\''") + "' " + real + ' "$@"\n', { mode: 0o755 });
+    const path_was = process.env.PATH;
+    process.env.PATH = dir + ":" + (path_was ?? "");
+    Cursor.set({ bin: BIN, sandbox: "bwrap", resolved: "/run/resolv.conf" });
+    try {
+      expect(Cursor.bwrap()).toBe(path.join(dir, "bwrap"));
+      expect(Cursor.resolver()).toEqual(["/run/resolv.conf"]);
+      const { end } = await call(ask("MODE:jail"));
+      expect(end.ok).toBe(true);
+      expect(end.text).toContain("RUN=[resolv.conf ]");
+      expect(end.text).toContain("RUNUSER=[]");
+      expect(end.text).toContain("DOCKER=unseen");
+    } finally {
+      process.env.PATH = path_was;
+      Cursor.set({ resolved: null });
+    }
+  });
+
+  test("a CLI bwrap can't run (its execvp failing, exit 1): not found, in Portuguese", async () => {
+    const broken = path.join(ROOT, "bin", "quebrado-bwrap");
+    fs.writeFileSync(broken, "#!/nao/existe/node\n", { mode: 0o755 });
+    Cursor.set({ bin: broken, sandbox: "bwrap" });
+    const { end } = await call(ask("MODE:ok"));
+    expect(end.ok).toBe(false);
+    expect(end.stop).toBeUndefined();
+    expect(end.text).toStartWith("o Cursor CLI não foi encontrado ou não pôde ser executado (código de saída 1): bwrap: execvp ");
+  });
+
   test("a stop kills the sandbox and what runs in it", async () => {
     Cursor.set({ bin: BIN, sandbox: "bwrap", grace: 300 });
     const { end } = await call(ask("MODE:silent"), (t) => setTimeout(() => t.stop(), 500));
-    expect(end.text).toBe("stopped");
+    expect(end.text).toBe("interrompido");
     await Bun.sleep(800);
     const left = Bun.spawnSync(["pgrep", "-f", BIN]).stdout.toString().trim();
     expect(left).toBe("");
