@@ -7,8 +7,9 @@
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
-import { Cursor } from "./Cursor.ts";
+import { Cursor, MIDWAY } from "./Cursor.ts";
 import { Agent } from "./Agent.ts";
 import { AskAI, type Ask, type Event } from "./AskAI.ts";
 import { Pick } from "./Pick.ts";
@@ -36,7 +37,9 @@ say() { j '{"type":"assistant","message":{"role":"assistant","content":[{"type":
 done_() { j '{"type":"result","subtype":"success","is_error":false,"result":"'"$1"'","session_id":"'$sid'","usage":{"inputTokens":3,"outputTokens":5,"cacheReadTokens":7,"cacheWriteTokens":11}}'; }
 if [ -n "$resume" ]; then
   init
-  text=$(printf '%s' "$msg" | tr -d '\n"' | cut -c1-120)
+  text=$(printf '%s' "$msg" | tr -d '\n"' | cut -c1-600)
+  # silent again on its session, once asked to go on (MODE:silentagain)
+  if [ -f "$PWD/silentagain" ]; then init; sleep 30; exit 0; fi
   say "RESUMED $resume: $text"; done_ "RESUMED $resume: $text"; exit 0
 fi
 case "$msg" in
@@ -55,8 +58,9 @@ case "$msg" in
     j '{"type":"tool_call","subtype":"completed","call_id":"t2","tool_call":{"readToolCall":{"args":{"path":"/etc/x"},"result":{"error":{"errorMessage":"Permission denied"}}}},"session_id":"'$sid'"}'
     say "feito"; done_ "feito" ;;
   *MODE:limitsoon*)
-    if [ -f once ]; then init; say "depois"; done_ "depois"; exit 0; fi
-    touch once
+    # its mark in the call's workspace (its cwd, removed as the call ends)
+    if [ -f "$PWD/once" ]; then init; say "depois"; done_ "depois"; exit 0; fi
+    touch "$PWD/once"
     echo "Error: [resource_exhausted] You've hit your usage limit. Try again in 1 second." ; exit 1 ;;
   *MODE:limitacted*)
     init
@@ -73,6 +77,27 @@ case "$msg" in
     echo "Error: [internal_error] something broke"; exit 1 ;;
   *MODE:silentfirst*)
     sleep 30 ;;
+  *MODE:silentagain*)
+    touch "$PWD/silentagain"; init; say "comecei"; sleep 30 ;;
+  *MODE:argv*)
+    init
+    a=$(printf '%s ' "$0" "$@" | tr -d '"')
+    k=$([ -n "$CURSOR_API_KEY" ] && echo "env:$CURSOR_API_KEY" || echo "env:none")
+    say "argv"; done_ "ARGV=$a|KEY=$k" ;;
+  *MODE:umask*)
+    init
+    printf '{}' > "$CURSOR_CONFIG_DIR/rewritten.json"
+    m=$(stat -c %a "$CURSOR_CONFIG_DIR/rewritten.json")
+    say "umask"; done_ "MODE=$m|UMASK=$(umask)" ;;
+  *MODE:jail*)
+    init
+    ru=$(ls -A /run/user 2>/dev/null | tr '\n' ' ')
+    r=$(ls -A /run 2>/dev/null | tr '\n' ' ')
+    vl=$(ls -A /var/lib 2>/dev/null | tr '\n' ' ')
+    lb=$(ls -A "$HOME/.local/bin" 2>/dev/null | tr '\n' ' ')
+    dk=$([ -e /run/docker.sock ] || [ -e /var/run/docker.sock ] && echo seen || echo unseen)
+    dns=$([ -r /etc/resolv.conf ] && echo readable || echo unreadable)
+    say "jail"; done_ "RUNUSER=[$ru]|RUN=[$r]|VARLIB=[$vl]|LOCALBIN=[$lb]|DOCKER=$dk|DNS=$dns" ;;
   *MODE:silent*)
     init; say "comecei"; sleep 30 ;;
   *MODE:slowtool*)
@@ -181,7 +206,7 @@ describe("Cursor.variant", () => {
   test("failures: a limit, a sign-in, every call's, this one's", () => {
     expect(Cursor.failure("Error: [resource_exhausted] slow down").limit).toBeDefined();
     expect(Cursor.failure("Error: Authentication required. Please run 'agent login' first").text).toContain("unii serve cursor");
-    expect(Cursor.failure("\x1b[33m⚠ Warning: The provided API key is invalid.\x1b[0m").text).toContain("not signed in");
+    expect(Cursor.failure("\x1b[33m⚠ Warning: The provided API key is invalid.\x1b[0m").text).toContain("não está autenticado");
     expect(Cursor.failure("Cannot use this model: x").off).toBe(true);
     const busy = Cursor.failure("Error: [internal_error] boom");
     expect([busy.stop, busy.off]).toEqual(["down", false]);
@@ -206,7 +231,7 @@ describe("a call", () => {
     expect(entries.slice(0, 4).map((e) => [e.kind, e.text, e.of])).toEqual([
       ["tool", 'mcp__unii__shell {"device":"d","command":"ls"}', "t1"],
       ["echo", "a.txt", "t1"],
-      ["tool", 'read {"path":"/etc/x"}', "t2"],
+      ["tool", "read /etc/x", "t2"],
       ["echo", "error: Permission denied", "t2"],
     ]);
     expect(end.acted).toBe(true);
@@ -280,9 +305,26 @@ describe("a call", () => {
   test("a message sent mid-run goes in as the session resumed", async () => {
     const { end, evs } = await call(ask("MODE:slowtool"), (t) => setTimeout(() => t.send({ text: "mais uma coisa", imgs: [] }), 300));
     expect(end.ok).toBe(true);
-    expect(end.text).toBe("RESUMED sess-1: mais uma coisa");
+    // its end: the first reply, then the resumed one, told not to repeat it
+    expect(end.text).toBe("fim\n\nRESUMED sess-1: " + MIDWAY.replace(/"/g, "") + "mais uma coisa");
     expect(evs.some((e) => e.$ === "Entry" && e.kind === "user" && e.text === "mais uma coisa")).toBe(true);
+    // the first reply logged once
+    expect(evs.filter((e) => e.$ === "Entry" && e.kind === "unii" && e.text === "fim").length).toBe(1);
     expect(end.left).toEqual([]);
+  });
+
+  test("silent again after its resume: the call ends (off), resumed once only", async () => {
+    Cursor.set({ bin: BIN, sandbox: "off", first: 400, idle: 400, grace: 200 });
+    const { end, evs } = await call(ask("MODE:silentagain"));
+    expect([end.ok, end.stop, end.off]).toEqual([false, "down", true]);
+    expect(end.text).toContain("went silent");
+    expect(evs.filter((e) => e.$ === "Entry" && e.kind === "mind" && /went silent: asking/.test(e.text)).length).toBe(1);
+  }, 10000);
+
+  test("a short usage limit's mark is the call's: none left in the repo's folder", async () => {
+    await call(ask("MODE:limitsoon"));
+    expect(fs.existsSync(path.join(import.meta.dir, "once"))).toBe(false);
+    expect(fs.existsSync(path.join(process.cwd(), "once"))).toBe(false);
   });
 
   test("a stop ends the call at once, its CLI killed, its dir removed", async () => {
@@ -331,7 +373,137 @@ describe("a call", () => {
   });
 });
 
+describe("isolation", () => {
+  test("the call's dir: the CLI's tools denied but ours, as written; its files and dirs its owner's alone", () => {
+    const room = Cursor.room(ask("x", { searches: 2 }));
+    try {
+      const conf = JSON.parse(fs.readFileSync(path.join(room.conf, "cli-config.json"), "utf8"));
+      expect(conf.permissions.deny).toEqual(["Shell(*)", "Read(**)", "Write(**)", "Delete(**)", "WebFetch(*)"]);
+      expect(conf.permissions.allow).toEqual(["Mcp(unii:*)"]);
+      expect(conf.autoAcceptWebSearch).toBe(true);
+      const mode = (f: string) => fs.statSync(f).mode & 0o777;
+      const mcp = path.join(room.work, ".cursor", "mcp.json");
+      expect(JSON.parse(fs.readFileSync(mcp, "utf8"))).toEqual({ mcpServers: { unii: { url: BASE.server } } });
+      expect(mode(mcp)).toBe(0o600);
+      expect(mode(path.join(room.conf, "cli-config.json"))).toBe(0o600);
+      expect(mode(path.join(room.work, ".cursor", "rules", "unii.mdc"))).toBe(0o600);
+      expect(mode(room.dir)).toBe(0o700);
+    } finally {
+      fs.rmSync(room.dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a Cursor key goes in its environment alone, never on a command line", async () => {
+    const was = config.KEYS.cursor;
+    config.KEYS.cursor = "CHAVE-SECRETA-123";
+    const room = Cursor.room(ask("x"));
+    try {
+      for (const jail of [null, "/usr/bin/bwrap"]) {
+        const cmd = Cursor.command(BIN, jail, room, "m", "sess-9");
+        expect(cmd.env.CURSOR_API_KEY).toBe("CHAVE-SECRETA-123");
+        expect(JSON.stringify([cmd.file, ...cmd.args])).not.toContain("CHAVE-SECRETA");
+        expect(cmd.args.some((a) => /api-key/i.test(a))).toBe(false);
+      }
+      // and run: the CLI sees it in its environment, not in its argv
+      const { end } = await call(ask("MODE:argv"));
+      expect(end.ok).toBe(true);
+      expect(end.text).toContain("KEY=env:CHAVE-SECRETA-123");
+      expect(end.text.split("|KEY=")[0]).not.toContain("CHAVE-SECRETA");
+    } finally {
+      fs.rmSync(room.dir, { recursive: true, force: true });
+      if (was === undefined) {
+        delete config.KEYS.cursor;
+      } else {
+        config.KEYS.cursor = was;
+      }
+    }
+    // none set: none in its environment
+    const bare = Cursor.room(ask("x"));
+    const saved = config.KEYS.cursor;
+    config.KEYS.cursor = "";
+    expect(Cursor.command(BIN, null, bare, "m", null).env.CURSOR_API_KEY).toBeUndefined();
+    config.KEYS.cursor = saved;
+    fs.rmSync(bare.dir, { recursive: true, force: true });
+  });
+
+  test("bwrap's arguments: its own pid and ipc, /run and /var/lib hidden, the CLI's version dir alone, under umask 077", () => {
+    const room = Cursor.room(ask("x"));
+    try {
+      const cmd = Cursor.command(BIN, "/usr/bin/bwrap", room, "m", null);
+      expect([cmd.file, cmd.args[0], cmd.args[1], cmd.args[2]]).toEqual(["/bin/sh", "-c", 'umask 077 && exec "$0" "$@"', "/usr/bin/bwrap"]);
+      const a = cmd.args.slice(3);
+      expect(a).toContain("--unshare-pid");
+      expect(a).toContain("--unshare-ipc");
+      expect(a).toContain("--die-with-parent");
+      const pairs = a.map((x, i) => x + " " + (a[i + 1] ?? ""));
+      const at = (p: string) => pairs.indexOf(p);
+      expect(at("--ro-bind /")).toBeGreaterThanOrEqual(0);
+      for (const d of Cursor.hidden()) {
+        // after the root, before the home and the binds
+        expect(at("--tmpfs " + d)).toBeGreaterThan(at("--ro-bind /"));
+        expect(at("--tmpfs " + d)).toBeLessThan(at("--bind " + room.dir));
+      }
+      if (fs.existsSync("/run")) {
+        expect(Cursor.hidden()).toContain("/run");
+      }
+      // the CLI: the fake is a lone file, so the file alone
+      expect(at("--ro-bind " + BIN)).toBeGreaterThan(at("--tmpfs " + os.homedir()));
+      expect(a.some((x) => x === path.join(os.homedir(), ".local", "bin"))).toBe(false);
+      expect(a[a.indexOf("--chdir") + 2]).toBe(BIN);
+    } finally {
+      fs.rmSync(room.dir, { recursive: true, force: true });
+    }
+  });
+
+  test("the installer's CLI: its version's dir mounted, run by its real path; not ~/.local/bin", () => {
+    const home = path.join(ROOT, "inst");
+    const ver = path.join(home, "share", "cursor-agent", "versions", "1.0");
+    fs.mkdirSync(ver, { recursive: true });
+    fs.mkdirSync(path.join(home, "bin"), { recursive: true });
+    fs.writeFileSync(path.join(ver, "cursor-agent"), "#!/bin/sh\n", { mode: 0o755 });
+    fs.writeFileSync(path.join(ver, "node"), "", { mode: 0o755 });
+    fs.writeFileSync(path.join(home, "bin", "outro"), "", { mode: 0o755 });
+    const link = path.join(home, "bin", "cursor-agent");
+    fs.symlinkSync(path.join(ver, "cursor-agent"), link);
+    expect(Cursor.cli_files(link)).toEqual({ run: fs.realpathSync(path.join(ver, "cursor-agent")), mounts: [fs.realpathSync(ver)] });
+    // a lone executable: itself alone, not its dir
+    expect(Cursor.cli_files(path.join(home, "bin", "outro"))).toEqual({ run: fs.realpathSync(path.join(home, "bin", "outro")), mounts: [fs.realpathSync(path.join(home, "bin", "outro"))] });
+  });
+
+  test("what it writes (as the CLI config it rewrites) is its owner's alone: umask 077", async () => {
+    const { end } = await call(ask("MODE:umask"));
+    expect(end.ok).toBe(true);
+    expect(end.text).toBe("MODE=600|UMASK=0077");
+  });
+
+  test("a call of the CLI's own tools logged by what it was to run, clipped; ours whole", () => {
+    const long = "cat /etc/hostname " + "x".repeat(500);
+    const shell = Cursor.called("shell", { args: { command: long, conversationId: "c-1", parsingResult: { a: 1 }, adminCommandDenylist: ["rm"] } });
+    expect(shell.startsWith("shell cat /etc/hostname x")).toBe(true);
+    expect(shell.length).toBeLessThan(220);
+    expect(shell).not.toContain("conversationId");
+    expect(shell.endsWith("…")).toBe(true);
+    expect(Cursor.called("read", { args: { path: "/home/x/.ssh/config" } })).toBe("read /home/x/.ssh/config");
+    expect(Cursor.called("edit", { args: { other: 1 } })).toBe("edit");
+    expect(Cursor.called("mcp__unii__date", { args: { args: { id: 0 } } })).toBe('mcp__unii__date {"id":0}');
+  });
+});
+
 describe.skipIf(!has_bwrap)("in bwrap", () => {
+  test("/run (the session's sockets, docker.sock) and /var/lib hidden, ~/.local/bin unseen, DNS still read", async () => {
+    Cursor.set({ bin: BIN, sandbox: "bwrap" });
+    const { end } = await call(ask("MODE:jail"));
+    expect(end.ok).toBe(true);
+    expect(end.text).toContain("RUNUSER=[]");
+    expect(end.text).toContain("VARLIB=[]");
+    expect(end.text).toContain("LOCALBIN=[]");
+    expect(end.text).toContain("DOCKER=unseen");
+    expect(end.text).toContain("DNS=readable");
+    // of /run, only what its DNS needs
+    const run = /RUN=\[([^\]]*)\]/.exec(end.text)![1].trim();
+    expect(run === "" ? [] : run.split(" ")).toEqual(Cursor.resolver().map((d) => d.split("/")[2]));
+  });
+
   test("an empty home, no variable of ours, the call's dir writable, the call's dir removed", async () => {
     process.env.UNII_TEST_SECRET = "nao-deve-vazar";
     Cursor.set({ bin: BIN, sandbox: "bwrap" });

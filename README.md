@@ -151,10 +151,21 @@ newest release. The installer also moves data from older versions.
    `claude-sub`, `openai-sub` or `cursor`. Each takes `logout` or
    `status`. Cursor (Cursor.ts) runs the Cursor CLI (`cursor-agent`,
    installed with `curl https://cursor.com/install -fsS | bash`) in
-   bubblewrap (`bwrap`, needed): an empty home, a read-only root, its own
-   tools denied, ours over MCP. It takes a Cursor key on the Settings page
-   instead of a sign-in, too. Its models: opus-5.5, sonnet-5.5 and
-   haiku-5.5 (as at Claude's vendors), gpt-5.6-sol, grok-4.7 and
+   bubblewrap (`bwrap`, needed): a read-only root, an empty home (of
+   `~/.local`, only the CLI's version dir), an empty `/tmp`, `/run` and
+   `/var/lib` (no session D-Bus, gpg-agent, keyring nor `docker.sock`;
+   only the DNS resolver's dir of `/run` is put back, read-only), its own
+   pid and ipc namespaces, umask 077 (so the CLI config it rewrites stays
+   0600), its own tools denied, ours over MCP. The network is shared: it
+   still reaches this host's ports and abstract sockets. It takes a
+   Cursor key on the Settings page instead of a sign-in, too (handed to
+   it in its environment, never on a command line). A message sent while
+   its turn runs goes in only as that turn ends (the CLI takes no input
+   mid-turn, unlike Claude Code): its session is resumed with it, told
+   that its reply was already shown, so it doesn't write that reply
+   again; the call's end (a subagent's report) holds both replies. Its
+   models: opus-5.5, sonnet-5.5 and haiku-5.5 (as at Claude's vendors),
+   gpt-5.6-sol, grok-4.7 and
    composer-2.5; a subagent is put on it by `cursor:<model>` (spawn's
    `model`), as a reviewer on `cursor:sonnet-5.5`.
 4. **Add devices.** On each computer Unii may work on, run `unii device

@@ -2613,7 +2613,7 @@ var SETTING = {
 var KEY = {
   anthropic: ["Anthropic key", "For claude-api's models."],
   openai: ["OpenAI key", "For openai-api's models and dictation."],
-  cursor: ["Cursor key", "For cursor's models, instead of `unii serve cursor`'s sign-in."],
+  cursor: ["Chave do Cursor", "Para os modelos do cursor, em vez da autenticação feita por `unii serve cursor`."],
   apns: ["APNs key", "The .p8 key the iOS app's pushes are signed with."]
 };
 var VENDOR_KEY = { "claude-api": "anthropic", "openai-api": "openai" };

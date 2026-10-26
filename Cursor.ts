@@ -17,12 +17,15 @@
 // shell, read, write and delete; web search follows `searches`), and it
 // runs in bubblewrap (config `cursor_sandbox`: "bwrap", the default, or
 // "off"): the root read-only, an empty home (no ~/.ssh, ~/.config/gh,
-// ~/.netrc, nor the unii dir), an empty /tmp, its own pid namespace, an
-// environment of our choosing; writable only the call's dir (RUNS/<id>:
-// its workspace and CLI config, removed as the call ends) and its
-// sign-in. Its permissions alone don't hold (tested: its sandbox let a
-// write through), so a missing bwrap is an error, not a fallback to none.
-// The network is shared: it reaches Cursor and our MCP port.
+// ~/.netrc, nor the unii dir; of ~/.local, the CLI's version dir alone),
+// an empty /tmp, an empty /run (no session D-Bus, gpg-agent, keyring nor
+// docker.sock: only its DNS's dir back, read-only) and /var/lib, its own
+// pid and ipc namespaces, umask 077, an environment of our choosing;
+// writable only the call's dir (RUNS/<id>: its workspace and CLI config,
+// removed as the call ends) and its sign-in. Its permissions alone don't
+// hold (tested: its sandbox let a write through), so a missing bwrap is
+// an error, not a fallback to none. The network is shared: it reaches
+// Cursor, our MCP port, and any port or abstract socket of this host.
 //
 // Errors, as at claude-sub: one it ends with (it prints "Error: [code]
 // message" and exits 1) is the vendor's, logged, the user told only
@@ -101,11 +104,20 @@ export const ON = "(The AI service's usage limit cut your last step short. It ha
 // what one is told after its CLI went silent and was stopped
 export const AGAIN_ON = "(Your last step was cut short: the AI service went silent. Go on from where you were.)";
 
-const SIGN_IN = "cursor is not signed in, or its sign-in expired: run `unii serve cursor` on the server, or set a Cursor key";
+// what a session resumed for messages sent while its turn ran is told
+// before them: its turn ended, its reply already shown (logged), so its
+// answer is to them alone, not that reply again with them in it (the
+// CLI takes a message only as a turn ends: it can't be told mid-turn,
+// as claude-sub's Claude Code is). The call's end holds both replies,
+// so a subagent's report keeps the first
+export const MIDWAY = "(The message below came while you worked. Your reply above was already shown, and stays: don't repeat it, nor restate its results. Answer only what the message adds to it.)";
 
-const NO_BIN = "cursor needs the Cursor CLI: install it (curl https://cursor.com/install -fsS | bash), or set `cursor` to its executable";
+// what the owner is told of its setup (in pt-BR, as the owner reads it)
+const SIGN_IN = "o cursor não está autenticado, ou a autenticação expirou: rode `unii serve cursor` no servidor ou cadastre uma chave do Cursor";
 
-const NO_BWRAP = "cursor runs the Cursor CLI in bubblewrap, which isn't installed here: install bwrap, or set cursor_sandbox to off";
+const NO_BIN = "o cursor precisa do Cursor CLI: instale-o (curl https://cursor.com/install -fsS | bash), ou aponte a configuração `cursor` para o executável";
+
+const NO_BWRAP = "o cursor roda o Cursor CLI no bubblewrap, que não está instalado aqui: instale o bwrap, ou defina cursor_sandbox como off";
 
 const STALLED = "the AI service went silent (Cursor CLI)";
 
@@ -118,6 +130,10 @@ const VARIANTS: Record<string, Variant> = {
   "grok-4.7"          : { head: "grok-4.7",                   efforts: ["low", "medium", "high", "xhigh"],        fast: true  },
   "composer-2.5"      : { head: "composer-2.5",               efforts: [],                                        fast: true  },
 };
+
+// how much of what a call of the CLI's own tools was to run or touch is
+// logged (Cursor.called)
+const CALLED = 200;
 
 // its own tools denied (Cursor's permission names); ours allowed
 const DENY = ["Shell(*)", "Read(**)", "Write(**)", "Delete(**)", "WebFetch(*)"];
@@ -246,7 +262,7 @@ export namespace Cursor {
     if (cmd[0] === "status") {
       const text = String(run.stdout ?? "").trim();
       const yes = /logged in/i.test(text) && !/not logged in/i.test(text);
-      console.log(text + "\n" + (yes ? "Sign-in in " + config.CURSOR_LOGIN + "." : "Not signed in to Cursor: run `unii serve cursor`."));
+      console.log(text + "\n" + (yes ? "Autenticação do Cursor em " + config.CURSOR_LOGIN + "." : "Cursor não autenticado: rode `unii serve cursor`."));
       process.exitCode = yes ? 0 : 1;
       return;
     }
@@ -292,27 +308,69 @@ export namespace Cursor {
   }
 
   // the command a turn runs: the CLI's (resuming `session`), in the
-  // sandbox unless it is off
+  // sandbox unless it is off, under umask 077 (what it writes, as the
+  // CLI config it rewrites, is its owner's alone: `umasked`)
   export function command(bin: string, jail: string | null, room: Room, model: string, session: string | null): Command {
     const own = ["-p", "--trust", "--approve-mcps", "--output-format", "stream-json", "--stream-partial-output", "--model", model, "--workspace", room.work, ...(session === null ? [] : ["--resume", session])];
     if (jail === null) {
       const home = path.join(room.dir, "home");
       fs.mkdirSync(home, { recursive: true, mode: 0o700 });
-      return { file: bin, args: own, env: Cursor.env(home, room, bin), cwd: room.work };
+      return Cursor.umasked({ file: bin, args: own, env: Cursor.env(home, room, bin), cwd: room.work });
     }
     const home = os.homedir();
     const xdg = Cursor.login();
-    const ro = [...new Set([path.dirname(bin), path.dirname(fs.realpathSync(bin)), path.join(home, ".local", "share", "cursor-agent")])].filter((d) => fs.existsSync(d));
+    const cli = Cursor.cli_files(bin);
     const args = [
       "--unshare-pid", "--unshare-ipc", "--die-with-parent", "--new-session",
-      "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp", "--tmpfs", home,
-      ...ro.flatMap((d) => ["--ro-bind", d, d]),
+      "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp",
+      ...Cursor.hidden().flatMap((d) => ["--tmpfs", d]),
+      ...Cursor.resolver().flatMap((d) => ["--ro-bind", d, d]),
+      "--tmpfs", home,
+      ...cli.mounts.flatMap((d) => ["--ro-bind", d, d]),
       "--bind", path.join(xdg, "cursor"), path.join(xdg, "cursor"),
       "--bind", room.dir, room.dir,
       "--chdir", room.work,
-      bin, ...own,
+      cli.run, ...own,
     ];
-    return { file: jail, args, env: Cursor.env(home, room, bin), cwd: room.work };
+    return Cursor.umasked({ file: jail, args, env: Cursor.env(home, room, cli.run), cwd: room.work });
+  }
+
+  // a command run under umask 077, by a shell that then execs it (so a
+  // stop's signal to its group reaches it, as before)
+  export function umasked(cmd: Command): Command {
+    return { ...cmd, file: "/bin/sh", args: ["-c", 'umask 077 && exec "$0" "$@"', cmd.file, ...cmd.args] };
+  }
+
+  // the dirs the sandbox hides under an empty tmpfs, those of them here:
+  // /run (the session's D-Bus, gpg-agent, keyrings, 1Password, Wayland
+  // and PipeWire sockets in /run/user/<uid>; docker.sock, root to its
+  // group), /var/lib (services' state)
+  export function hidden(): string[] {
+    return ["/run", "/var/lib"].filter((d) => fs.existsSync(d));
+  }
+
+  // what of /run its DNS needs back, read-only: the dir of the
+  // resolv.conf /etc/resolv.conf links into, if it is in /run (with
+  // systemd-resolved: /run/systemd/resolve, its stub's file and the
+  // socket nss-resolve asks); none if it isn't
+  export function resolver(): string[] {
+    try {
+      const real = fs.realpathSync("/etc/resolv.conf");
+      return real.startsWith("/run/") ? [path.dirname(real)] : [];
+    } catch {
+      return [];
+    }
+  }
+
+  // the CLI in the sandbox: the file run (the executable, its links
+  // followed: the installer links ~/.local/bin/cursor-agent into its
+  // version's dir), and what is mounted of it, read-only: that version's
+  // dir alone if the executable is the installer's launcher (its node
+  // beside it), else the executable alone; never all of ~/.local/bin
+  export function cli_files(bin: string): { run: string; mounts: string[] } {
+    const run = fs.realpathSync(bin);
+    const dir = path.dirname(run);
+    return { run, mounts: [Cursor.runs(path.join(dir, "node")) ? dir : run] };
   }
 
   // A call
@@ -387,6 +445,8 @@ export namespace Cursor {
     // what the next turn is told on its session (null: the call's message, anew)
     let next: string | null = null;
     let resume = false;
+    // the replies of the turns before messages sent mid-run went in
+    const replies: string[] = [];
     const used = { runs: 0, input: 0, output: 0, read: 0, write: 0 };
     try {
       for (let tries = 0, n = 0, stalls = 0; !signal.aborted; ) {
@@ -461,11 +521,12 @@ export namespace Cursor {
         const says = sent.splice(0);
         if (says.length === 0 || session === null) {
           sent.unshift(...says);
-          return { ok: true, text: got.text ?? "", acted: acted.v };
+          return { ok: true, text: [...replies, got.text ?? ""].filter((t) => t !== "").join("\n\n"), acted: acted.v };
         }
+        replies.push(got.text ?? "");
         acted.v = true;
         says.forEach((say) => log({ $: "Entry", kind: "user", text: say.text }));
-        next = Cursor.message(says.map((say) => say.text), says.reduce((k, say) => k + say.imgs.length, 0));
+        next = Cursor.message([MIDWAY, ...says.map((say) => say.text)], says.reduce((k, say) => k + say.imgs.length, 0));
       }
       return {};
     } finally {
@@ -654,7 +715,7 @@ export namespace Cursor {
         } else if (ev.subtype === "started") {
           open.add(id);
           acted.v ||= name.startsWith("mcp__unii__");
-          log({ $: "Entry", kind: "tool", text: name + " " + JSON.stringify(call?.args?.args ?? call?.args ?? {}), of: id });
+          log({ $: "Entry", kind: "tool", text: Cursor.called(name, call), of: id });
         } else if (ev.subtype === "completed") {
           open.delete(id);
           log({ $: "Entry", kind: "echo", text: Cursor.back(call?.result), of: id });
@@ -686,6 +747,24 @@ export namespace Cursor {
       return ["mcp__" + (c?.args?.providerIdentifier ?? c?.args?.serverIdentifier ?? "mcp") + "__" + (c?.args?.toolName ?? "tool"), c];
     }
     return [key.replace(/ToolCall$/, ""), c];
+  }
+
+  // a tool call as logged: one of ours, its name and its arguments (as
+  // JSON, as Claude Code's are); one of the CLI's own (denied: its
+  // permissions), its name and only what it was to run or touch (its
+  // command, path, URL, pattern or query), clipped to CALLED chars, not
+  // the whole of its call (its conversation's id, its parse...)
+  export function called(name: string, call: any): string {
+    if (name.startsWith("mcp__")) {
+      return name + " " + JSON.stringify(call?.args?.args ?? call?.args ?? {});
+    }
+    const a = call?.args ?? {};
+    const what = [a.command, a.path, a.url, a.pattern, a.query, a.globPattern].find((v) => typeof v === "string" && v !== "") as string | undefined;
+    if (what === undefined) {
+      return name;
+    }
+    const one = what.replace(/\s+/g, " ").trim();
+    return name + " " + (one.length > CALLED ? one.slice(0, CALLED) + "…" : one);
   }
 
   // a tool call's result as text: an MCP tool's content, else an error
