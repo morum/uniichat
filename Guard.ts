@@ -14,6 +14,20 @@
 // (git push, git push origin HEAD) may land on main if the branch checked
 // out, or its upstream, is main, which the serve can't see from here; the
 // agent names the branch (git push origin HEAD:feat/x) and it goes through.
+// A subshell or group around the push, or a redirection glued to its last
+// word ((git push origin main), git push origin main>/dev/null), is read
+// as the push it holds: ), } and what a < or > starts are cut off a word's
+// end before its refspec is read.
+// Out of reach, as said above, and so let through (GreenPepper, P109): a
+// push that names the current branch by another of git's spellings (git
+// push origin HEAD~0, HEAD^, main^{}), a command held in a variable set
+// elsewhere ($CMD), a script the agent wrote (bash push.sh), an alias.
+// Reading those would mean running a shell; the prompt bans them as much
+// as the serve bans the rest.
+// A cost taken on purpose: quotes don't hide a ban, so a command that only
+// writes one down (echo 'git push origin main' > /tmp/x, a heredoc) is
+// refused as if it ran it. Better a needless refusal, which the agent
+// works around by writing it another way, than a push to main let through.
 
 // Types
 // =====
@@ -113,10 +127,22 @@ export const BANS: Ban[] = [
 // Guard
 // =====
 
-// what follows git's push in a part (its remote and refspecs)
-function after_push(p: string): string {
+// what follows git's push in a part (its remote and refspecs), each word
+// with what closes a subshell or group, or starts a redirection glued to
+// it, cut off its end: (git push origin main) and git push origin
+// main>/dev/null push main (a word that is a redirection, 2>&1 or >x, is
+// kept whole: push_unnamed skips it)
+export function after_push(p: string): string {
   const m = PUSH.exec(p);
-  return m === null ? "" : p.slice(m.index + m[0].length);
+  if (m === null) {
+    return "";
+  }
+  return p.slice(m.index + m[0].length).split(/(\s+)/).map((w) => {
+    if (/^\s*$/.test(w) || /^\d*[<>]/.test(w)) {
+      return w;
+    }
+    return w.replace(/[<>].*$/, "").replace(/[)}]+$/, "");
+  }).join("");
 }
 
 // whether a push leaves where it goes to git (a remote and no refspec, or

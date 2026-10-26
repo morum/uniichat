@@ -74,6 +74,17 @@ const NO = [
   "pgrep -f uniichat | xargs kill",
   "kill -9 `pidof bun`",
   "pkill -f \"$PAT\"",
+  // in a subshell or group, or a redirection glued on (GreenPepper, P109)
+  "(git push origin main)",
+  "(cd x && git push origin main)",
+  "cd x && (git push origin main)",
+  "git push origin main>/dev/null",
+  "git push origin main>>log 2>&1",
+  "{ git push origin main;}",
+  "(git push origin HEAD:master)",
+  "(git push origin HEAD)",
+  "git push origin HEAD>/dev/null",
+  "(git push --tags)",
 ];
 
 const YES = [
@@ -107,7 +118,34 @@ const YES = [
   "pgrep -f 'bun test'",
   "curl -s https://api.github.com/repos/a/b/pulls/3",
   "gh api repos/a/b/pulls/3 --jq .mergeable",
+  // a branch's push in a subshell or with a redirection glued on
+  "(git push origin feat/x)",
+  "(cd x && git push -u origin feat/main-fix)",
+  "git push origin HEAD:feat/x>/dev/null",
+  "git push origin feat/x 2>&1",
 ];
+
+test("a word's closing ) or } and a glued redirection are cut before its refspec is read", () => {
+  expect(Guard.after_push("(git push origin main)")).toBe(" origin main");
+  expect(Guard.after_push("git push origin main>/dev/null 2>&1")).toBe(" origin main 2>&1");
+  expect(Guard.after_push("git push origin feat/x}")).toBe(" origin feat/x");
+});
+
+// what the header says the guard doesn't read, fixed so a change to it is
+// seen: git's other spellings of the branch, a command in a variable, a
+// script (out of reach: the prompt bans them)
+test("what is out of the guard's reach goes through, as its header says", () => {
+  for (const c of ["git push origin HEAD~0", "git push origin HEAD^", "git push origin main^{}", "$CMD", "bash script.sh"]) {
+    expect([c, Guard.forbidden(c)]).toEqual([c, null]);
+  }
+});
+
+// the cost taken on purpose: a command that only writes a ban down is
+// refused as if it ran it
+test("a ban only written down, in quotes, is refused all the same", () => {
+  expect(Guard.forbidden("echo 'git push origin main' > /tmp/x")).toContain("push em main");
+  expect(Guard.forbidden("printf '%s\\n' \"gh pr merge 22\" >> notas.txt")).toContain("mesclar");
+});
 
 test("each ban is refused, said in the user's language, whatever part of the command holds it", () => {
   for (const c of NO) {
