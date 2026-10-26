@@ -355,11 +355,21 @@ export namespace Cursor {
   // socket nss-resolve asks); none if it isn't
   export function resolver(): string[] {
     try {
-      const real = fs.realpathSync("/etc/resolv.conf");
-      return real.startsWith("/run/") ? [path.dirname(real)] : [];
+      return Cursor.resolver_of(fs.realpathSync("/etc/resolv.conf"));
     } catch {
       return [];
     }
+  }
+
+  // resolver()'s, for the file `real` it links into: its dir if under
+  // /run, but that file alone if right in /run (/run/resolv.conf): its
+  // dir, /run all over again, would undo the tmpfs hiding it
+  export function resolver_of(real: string): string[] {
+    if (!real.startsWith("/run/")) {
+      return [];
+    }
+    const dir = path.dirname(real);
+    return [dir === "/run" ? real : dir];
   }
 
   // the CLI in the sandbox: the file run (the executable, its links
@@ -659,14 +669,14 @@ export namespace Cursor {
       }
       const code = await exit;
       if (failed.why !== null) {
-        return { text: "the Cursor CLI couldn't run: " + failed.why, session };
+        return { text: "o Cursor CLI não pôde ser executado: " + failed.why, session };
       }
       if (got?.ok === true) {
         return { ...got, session };
       }
       const words = [got?.text ?? "", noise.join("").trim()].filter((w) => w !== "").join("\n");
       if (words === "") {
-        return { text: "the Cursor CLI ended (exit " + code + ") without a word", session, died: session === undefined };
+        return { text: "o Cursor CLI terminou sem responder (código de saída " + code + ")", session, died: session === undefined };
       }
       return { ...Cursor.failure(words), session };
     } finally {
@@ -775,7 +785,12 @@ export namespace Cursor {
       return (r.success.isError === true ? "error: " : "") + (text || "(no output)");
     }
     if (r?.error !== undefined) {
-      return "error: " + (r.error.errorMessage ?? JSON.stringify(r.error));
+      if (r.error.errorMessage !== undefined && r.error.errorMessage !== null) {
+        return "error: " + r.error.errorMessage;
+      }
+      // its whole error, clipped as a call is (CALLED chars)
+      const json = JSON.stringify(r.error);
+      return "error: " + (json.length > CALLED ? json.slice(0, CALLED) + "…" : json);
     }
     if (r !== undefined && r !== null && r.success === undefined) {
       return "error: " + Object.keys(r)[0];

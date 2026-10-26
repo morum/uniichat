@@ -268,7 +268,15 @@ describe("a call", () => {
   test("a CLI gone without a word is asked once more, then fails", async () => {
     const { end } = await call(ask("MODE:die"));
     expect(end.ok).toBe(false);
-    expect(end.text).toContain("exit 3");
+    expect(end.text).toContain("o Cursor CLI terminou sem responder (código de saída 3)");
+  });
+
+  test("a CLI that can't be spawned: said in Portuguese, with why", async () => {
+    const used = { input: 0, output: 0, read: 0, write: 0 };
+    const cmd = { file: path.join(ROOT, "nao-existe"), args: [], env: {}, cwd: ROOT };
+    const end = await Cursor.turn(cmd, "oi", () => {}, () => {}, new AbortController().signal, { v: false }, () => {}, used);
+    expect(end?.text).toStartWith("o Cursor CLI não pôde ser executado: ");
+    expect(end?.text).toContain("ENOENT");
   });
 
   test("a long usage limit with a fallback and no tool run ends (off) for it, naming the reset", async () => {
@@ -474,6 +482,22 @@ describe("isolation", () => {
     const { end } = await call(ask("MODE:umask"));
     expect(end.ok).toBe(true);
     expect(end.text).toBe("MODE=600|UMASK=0077");
+  });
+
+  test("of /run, its DNS's dir alone; a resolv.conf right in /run, that file alone (not /run, undoing its tmpfs)", () => {
+    expect(Cursor.resolver_of("/run/systemd/resolve/stub-resolv.conf")).toEqual(["/run/systemd/resolve"]);
+    expect(Cursor.resolver_of("/run/resolv.conf")).toEqual(["/run/resolv.conf"]);
+    expect(Cursor.resolver_of("/etc/resolv.conf")).toEqual([]);
+    expect(Cursor.resolver_of("/runx/resolv.conf")).toEqual([]);
+  });
+
+  test("a tool's error without its message logged clipped, as a call is", () => {
+    const back = Cursor.back({ error: { detail: "x".repeat(5000) } });
+    expect(back.startsWith('error: {"detail":"xxx')).toBe(true);
+    expect(back.length).toBeLessThanOrEqual("error: ".length + 200 + 1);
+    expect(back.endsWith("…")).toBe(true);
+    expect(Cursor.back({ error: { code: 1 } })).toBe('error: {"code":1}');
+    expect(Cursor.back({ error: { errorMessage: "negado" } })).toBe("error: negado");
   });
 
   test("a call of the CLI's own tools logged by what it was to run, clipped; ours whole", () => {
