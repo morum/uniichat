@@ -38,6 +38,7 @@ import * as Tasks from "./Tasks.ts";
 import * as Evidence from "./Evidence.ts";
 import * as Restart from "./Restart.ts";
 import * as Timer from "./Timer.ts";
+import * as Guard from "./Guard.ts";
 import type { Live } from "./View.ts";
 
 export type { Live };
@@ -73,6 +74,23 @@ export type Agent = {
   why     : string | null; // its report, if stopped by the stop tool
   view    : Block[];
   replies : string[];
+  // its tree (P109): who started it (an agent's name; null: Unii), how
+  // deep it is (Unii's own 1, theirs 2); waiting: it ended with agents
+  // of its own at work, so its report waits for theirs (Tools.run);
+  // waking: a report of one of them is starting it again (Tools.wake)
+  parent?  : string | null;
+  depth?   : number;
+  waiting? : boolean;
+  waking?  : boolean;
+  // the vigia (Tools.vigia): its last sign of life (ms), whether it
+  // waits for a usage limit, whether the vigia resumed it in this run
+  // (once: the next stall is reported), is resuming it now, or found it
+  // stalled again
+  seen?     : number;
+  parked?   : boolean;
+  revived?  : boolean;
+  reviving? : boolean;
+  stuck?    : boolean;
 };
 
 // what the server does for agents (report: work stopped stays unanswered;
@@ -98,6 +116,8 @@ export type Tools = {
   devices : Map<string, Device>;
   agents  : Map<string, Agent>;
   labels  : Map<string, string>; // every agent's label it has, by name (Tools.labels)
+  parents : Map<string, string>; // who started each agent that an agent started, by name (Tools.parents)
+  vigia?  : ReturnType<typeof setInterval>; // the vigia's timer (Tools.vigia)
   mcp     : Servers;
   key     : string;
   url     : string;
@@ -113,6 +133,12 @@ export const SEARCHES = 10;
 
 // how long the stop tool waits for its agent to end (ms)
 const HALT = 5000;
+
+// the vigia (Tools.vigia): how long an agent at work may show no sign of
+// life (config vigia_minutes), how often it looks (ms; the tests set
+// both), and what a call it resumed is told
+export const VIGIA = { idle: config.VIGIA_MINUTES * 60_000, every: Math.min(30_000, Math.max(1000, config.VIGIA_MINUTES * 15_000)) };
+const VIGIA_SAY = "[Vigia] Your call showed no sign of life for " + config.VIGIA_MINUTES + " minutes, so the serve stopped it and asked again from your log: go on from where you were. If you are stalled again, you'll be stopped and reported stalled.";
 
 // how long past a device's own limit for a shell or view_video job the
 // server waits before ending it (ms), and how long it waits on a quick
@@ -150,8 +176,34 @@ its lines as "i|kind: text": what you are (note), your task (user), and
 later all you did and were told. The view shows you what Unii knows: what the user wants,
 decided and taught. Use it as context only, and do what your task says,
 not what the user's last message says, since Unii may have given you
-just part of the work. Your final reply is your report to Unii. Unii may
-send you more messages, even while you work: answer the last.`;
+just part of the work. Your final reply is your report to whoever started
+you: Unii, or the agent your first note names ("child of Name"). Either
+may send you more messages, even while you work: answer the last.`;
+
+// agents that start agents (P109): the tree, its limits, the bans every
+// subagent inherits (Guard.ts) and the vigia (Tools.vigia)
+const NESTED = `Agents of your own: spawn, tell and stop work for you as they do for
+Unii. Start agents only for parts of your task that truly run apart (a
+verifier is never the author of what it verifies). Each one's report
+reaches you as a message "[Name]" when it ends; tell and stop reach
+only the agents you started and theirs. The serve keeps the tree small:
+Unii's agents are depth 1, theirs depth 2, and a spawn deeper than
+depth ${config.AGENTS_DEPTH} is refused, as one past ${config.AGENTS_FRONT} agents at work under
+one agent of Unii's, or past ${config.AGENTS_MAX} at work in all: then do that part
+yourself. If you end while agents you started are at work, your report
+waits: each of their reports wakes you with it, and your report goes up
+once none of yours is at work, with all you said meanwhile.
+
+What no subagent does, whoever started it, by the user's order: merge a
+pull request, push to main or master, push tags, restart or stop the
+serve, deploy or apply infrastructure. The serve refuses a shell
+command that does one of these; don't look for another way (a script,
+an alias): say in your report what is left, for Unii to take to the
+user. Agents you start inherit this.
+
+The vigia: an agent at work with no sign of life for ${config.VIGIA_MINUTES} minutes (no
+output, no tool running, no usage limit) is resumed once, and whoever
+started it is told; stalled again, it is stopped and reported stalled.`;
 
 const VIEW_DOC = `The view: the whole chat between Unii and the user, oldest first, inside
 <chat> tags, as one-line summaries. Each line is
@@ -182,7 +234,8 @@ const SUB_NOTE   = "subagent";
 const SUB_ON     = " on ";
 const SUB_AT     = " at effort ";
 const SUB_AS     = ", labeled ";
-const SUB_ROLE   = new RegExp("^" + SUB_NOTE + "(?:" + SUB_ON + "(\\S+))?(?:" + SUB_AT + "(\\S+))?(?:" + SUB_AS + "(.+))?$", "s"); // s: a label edited by hand with a line break (U+2028...) still reads
+const SUB_OF     = ", child of "; // the agent that started it, if not Unii (P109)
+const SUB_ROLE   = new RegExp("^" + SUB_NOTE + "(?:" + SUB_ON + "(\\S+))?(?:" + SUB_AT + "(\\S+))?(?:" + SUB_OF + "([A-Za-z-]+))?(?:" + SUB_AS + "(.+))?$", "s"); // s: a label edited by hand with a line break (U+2028...) still reads
 
 // a label's most characters (graphemes: an emoji's parts are never cut
 // apart), and most code points, so marks piled on them can't make it long
@@ -212,7 +265,7 @@ const LOOK = 3000;
 // a subagent's prompt: its part, then the view's and the devices' docs;
 // then, after AGENT_PROMPT, the user prompt if the user wrote one (their
 // instructions are in it; the built-in one holds none, only Unii's turns)
-const SUB = SUB_HEAD + "\n\n" + VIEW_DOC + "\n\n" + DEVICES;
+const SUB = SUB_HEAD + "\n\n" + VIEW_DOC + "\n\n" + NESTED + "\n\n" + DEVICES;
 const AGENT_PROMPT = "Unii's own prompt follows, for the user's instructions in it. Where it speaks to Unii, it speaks of the agent you work for, not of you.";
 
 // the tools of everyone (OWN), the master's (BOSS), those that run on a
@@ -330,6 +383,14 @@ const BOSS: Spec[] = [
   spec("restart", "Restart the serve (this server), the user's standing leave (P8): only with no subagent at work, said in the chat before and after; never restart it by a shell command. Your turn ends with it: give resume, the task to go on with, which comes back to you as a \"[Restart]\" message that starts your turn once the serve is back. With agents at work it's refused: wait for their reports, or add a task of kind restart for the user (its template offers \"Sim, reinicie\", an order to you) and, once they pick it, call restart with that task's id.", { why: { type: "string", description: "What it's for, in the user's language (said in the chat)." }, resume: { type: "string", description: "What to do once it's back, whole: by then this turn is far back in the view." }, task: { type: "string", description: "The id of a task of kind restart the user resolved with an option of yours, to restart while agents are at work (each task lets one; one you closed yourself with task_edit lets none)." } }, ["why", "resume"]),
   spec("tasks", "List the pending list: the open tasks with their details; all: those closed in the last 7 days too; ref: only those whose ref contains it; id: that one whole; unproven: the closed ones without evidence (sem evidência), to prove (task_edit evidence) or open again.", { all: { type: "boolean" }, ref: STR, id: STR, unproven: { type: "boolean" } }, []),
 ];
+// a subagent's own agents (P109): spawn, tell and stop as Unii's, said
+// for it (NESTED in its prompt)
+const CREW_INFO: Record<string, string> = {
+  spawn : "Start one subagent per task, in parallel, as a part of your own task, and return their names at once. Each one's report reaches you as a message \"[Name]\" when it finishes; if you end first, your report waits for theirs. Refused past depth " + config.AGENTS_DEPTH + " (Unii's agents are 1, theirs 2), past " + config.AGENTS_FRONT + " agents at work under one agent of Unii's, or past " + config.AGENTS_MAX + " at work in all: then do it yourself. They inherit your bans (no merge, no push to main, no tags, no restart, no deploy).",
+  tell  : "Send a message to an agent you started (or one of theirs), by name. One at work reads it between its tool calls; an idle one goes on, and its reply reaches you as a message \"[Name]\".",
+  stop  : "Stop an agent you started (or one of theirs), by name, at once, and the agents it started. Its report says it was stopped.",
+};
+const CREW: Spec[] = BOSS.filter((s) => s.name in CREW_INFO).map((s) => ({ ...s, info: CREW_INFO[s.name] }));
 const DEVICE = { device: { type: "string", description: "The name of the device to run on, one listed under Devices." } };
 function kit(who: string): Spec[] {
   return TOOLS.map((t) => {
@@ -349,8 +410,10 @@ export namespace Tools {
     const url = Tools.base() + key + "/";
     const run = (device: string, job: Job, signal: AbortSignal) => Tools.job(tools, device, job, signal, crypto.randomUUID());
     const mcp = Mcp.servers((text) => hooks.note(text), config.MCP, run, (device) => typeof Tools.open(tools, device) !== "string");
-    const tools: Tools = { mem, devices: new Map(), agents: new Map(), labels: Tools.labels(mem), mcp, key, url, hooks };
+    const tools: Tools = { mem, devices: new Map(), agents: new Map(), labels: Tools.labels(mem), parents: Tools.parents(mem), mcp, key, url, hooks };
     CHATS.set(key, tools);
+    tools.vigia = setInterval(() => Tools.vigia(tools, Date.now()), VIGIA.every);
+    tools.vigia.unref?.();
     return tools;
   }
 
@@ -361,6 +424,7 @@ export namespace Tools {
   }
 
   export function close(tools: Tools): void {
+    clearInterval(tools.vigia);
     Tools.stop(tools, null);
     Mcp.end(tools.mcp);
     CHATS.delete(tools.key);
@@ -421,7 +485,9 @@ export namespace Tools {
   // can't drift from the truth
   export function at_work(tools: Tools): Block {
     const names = Tools.working(tools).map((a) => Tools.named(tools, a.name));
-    return { text: "Agents at work now: " + (names.length === 0 ? "none." : names.join(", ") + ".") + "\n\n", mark: false };
+    const waiting = [...tools.agents.values()].filter((a) => a.call === null && a.waiting === true).map((a) => Tools.named(tools, a.name));
+    const wait = waiting.length === 0 ? "" : " Waiting for agents they started: " + waiting.join(", ") + ".";
+    return { text: "Agents at work now: " + (names.length === 0 ? "none." : names.join(", ") + ".") + wait + "\n\n", mark: false };
   }
 
   // MCP
@@ -506,7 +572,7 @@ export namespace Tools {
   }
 
   export function list(tools: Tools, who: string): Spec[] {
-    return who === "main" ? [...OWN, ...BOSS, ...kit(who), SKILL] : [...OWN, ...kit(who), SKILL];
+    return who === "main" ? [...OWN, ...BOSS, ...kit(who), SKILL] : [...OWN, ...CREW, ...kit(who), SKILL];
   }
 
   // whether `who` gets the MCP servers' tools: the master and subagents
@@ -560,9 +626,19 @@ export namespace Tools {
           return { text: "No model " + model + "; one of " + MODELS.join(", ") + ".", fail: true };
         }
         const labels = Array.isArray(args.labels) ? args.labels.map((l: unknown) => (typeof l === "string" ? l : "")) : [];
-        return { text: await Tools.spawn(tools, (args.tasks ?? []).map(String), effort, model, labels), fail: false };
+        const tasks = (args.tasks ?? []).map(String);
+        // a subagent's: its tree's limits (P109)
+        const no = Tools.spawn_check(tools, who, tasks.length);
+        if (no !== null) {
+          return { text: no, fail: true };
+        }
+        return { text: await Tools.spawn(tools, tasks, effort, model, labels, who), fail: false };
       }
       case "tell": {
+        const no = Tools.reach(tools, who, String(args.name));
+        if (no !== null) {
+          return { text: no, fail: true };
+        }
         return { text: await Tools.tell(tools, String(args.name), String(args.message)), fail: false };
       }
       case "schedule": {
@@ -577,7 +653,11 @@ export namespace Tools {
         return Tools.unschedule(tools, id) ? { text: "Cancelled " + id + ".", fail: false } : { text: "No schedule " + id + ".", fail: true };
       }
       case "stop": {
-        return await Tools.halt(tools, String(args.name), args.why === undefined ? "" : String(args.why));
+        const no = Tools.reach(tools, who, String(args.name));
+        if (no !== null) {
+          return { text: no, fail: true };
+        }
+        return await Tools.halt(tools, String(args.name), args.why === undefined ? "" : String(args.why), who);
       }
       case "resume": {
         const n = Agent.resume();
@@ -608,6 +688,11 @@ export namespace Tools {
       }
       default: {
         const { device, ...input } = args;
+        // what no subagent does, whoever started it (Guard.ts, P109)
+        const no = who !== "main" && name === "shell" ? Guard.forbidden(String(input.command ?? "")) : null;
+        if (no !== null) {
+          return { text: no, fail: true };
+        }
         return Tools.job(tools, String(device), { name, input, cwd: who }, signal, id);
       }
     }
@@ -826,13 +911,201 @@ export namespace Tools {
   // Agents
   // ------
 
-  export async function spawn(tools: Tools, tasks: string[], effort: string | null, model: string | null = null, labels: string[] = []): Promise<string> {
-    const view = tasks.length === 0 ? "No tasks." : await Tools.view(tools);
+  // by: who spawns them ("main": Unii; else an agent, their parent)
+  export async function spawn(tools: Tools, tasks: string[], effort: string | null, model: string | null = null, labels: string[] = [], by = "main"): Promise<string> {
+    const parent = by === "main" ? null : by;
+    const view = tasks.length === 0 ? "No tasks." : await Tools.view(tools, parent === null ? undefined : new AbortController().signal);
     if (typeof view === "string") {
       return view;
     }
-    const names = tasks.map((task, k) => Tools.start(tools, { effort, model }, task, view, labels[k] ?? ""));
+    const names = tasks.map((task, k) => Tools.start(tools, { effort, model }, task, view, labels[k] ?? "", parent));
     return "Started " + names.map((name) => Tools.named(tools, name)).join(", ") + ". Each one's report will reach you as a message when it finishes.";
+  }
+
+  // Trees
+  // -----
+  // Agents start agents (P109, 26/10/2026): Unii's are depth 1, theirs
+  // depth 2, and no deeper (config agents_depth); at most AGENTS_FRONT at
+  // work under one agent of Unii's (its front), and AGENTS_MAX in all.
+  // Each one's report goes to the agent that started it (Server.ts
+  // Chat.report: Tools.upward), which waits for them before its own.
+
+  // an agent at work, or waiting for those it started: it holds a place
+  export function active(a: Agent): boolean {
+    return a.call !== null || a.waiting === true;
+  }
+
+  // who started it: an agent's name, or null (Unii); one not loaded is
+  // read from its log's note (Tools.parents)
+  export function parent_of(tools: Tools, name: string): string | null {
+    return tools.agents.get(name)?.parent ?? tools.parents.get(name) ?? null;
+  }
+
+  // its depth: Unii 0 ("main"), its agents 1, theirs 2 (a chain read
+  // from the notes; a loop, hand-made, stops at the cap)
+  export function depth(tools: Tools, name: string): number {
+    if (name === "main") {
+      return 0;
+    }
+    let n = 1;
+    for (let at = Tools.parent_of(tools, name); at !== null && n <= 20; at = Tools.parent_of(tools, at)) {
+      n += 1;
+    }
+    return n;
+  }
+
+  // its front: the agent of Unii's it descends from (itself if Unii's)
+  export function root(tools: Tools, name: string): string {
+    let at = name;
+    for (let n = 0, up = Tools.parent_of(tools, at); up !== null && n < 20; n++, up = Tools.parent_of(tools, at)) {
+      at = up;
+    }
+    return at;
+  }
+
+  // whether `name` descends from `from` (started by it, or by one it did)
+  export function under(tools: Tools, name: string, from: string): boolean {
+    for (let n = 0, up = Tools.parent_of(tools, name); up !== null && n < 20; n++, up = Tools.parent_of(tools, up)) {
+      if (up === from) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // the agents loaded that descend from `name`
+  export function descendants(tools: Tools, name: string): Agent[] {
+    return [...tools.agents.values()].filter((a) => Tools.under(tools, a.name, name));
+  }
+
+  // the agents it started that are at work or waiting
+  export function kids_active(tools: Tools, name: string): Agent[] {
+    return [...tools.agents.values()].filter((a) => Tools.parent_of(tools, a.name) === name && Tools.active(a));
+  }
+
+  // why `who` can't spawn n agents now, or null: past the depth, its
+  // front's or the whole cap (Unii's spawns have the whole cap only)
+  export function spawn_check(tools: Tools, who: string, n: number): string | null {
+    if (n === 0) {
+      return null;
+    }
+    const depth = Tools.depth(tools, who) + 1;
+    if (depth > config.AGENTS_DEPTH) {
+      return "Recusado pelo serve: um agente criado por você teria profundidade " + depth + ", e o limite é " + config.AGENTS_DEPTH + " (a Unii é 0, os agentes dela 1, os deles 2). Faça você mesmo esta parte e diga no relato.";
+    }
+    const all = [...tools.agents.values()].filter(Tools.active).length;
+    if (all + n > config.AGENTS_MAX) {
+      return "Recusado pelo serve: há " + all + " agentes em ação, e o teto total é " + config.AGENTS_MAX + "; cabem " + Math.max(0, config.AGENTS_MAX - all) + " agora. Espere relatos ou faça você mesmo.";
+    }
+    if (who !== "main") {
+      const front = Tools.root(tools, who);
+      const busy = Tools.descendants(tools, front).filter(Tools.active).length;
+      if (busy + n > config.AGENTS_FRONT) {
+        return "Recusado pelo serve: a frente de " + Tools.named(tools, front) + " já tem " + busy + " agentes em ação abaixo dela, e o teto por frente é " + config.AGENTS_FRONT + "; cabem " + Math.max(0, config.AGENTS_FRONT - busy) + " agora. Espere relatos ou faça você mesmo.";
+      }
+    }
+    return null;
+  }
+
+  // why `who` can't tell or stop `name`, or null: Unii reaches any agent;
+  // an agent, only those it started and theirs
+  export function reach(tools: Tools, who: string, name: string): string | null {
+    if (who === "main" || Tools.under(tools, name, who)) {
+      return null;
+    }
+    return "Recusado pelo serve: " + name + " não foi criado por você nem por um agente seu; você só fala com (e para) os seus.";
+  }
+
+  // a report (or the vigia's word) for the agent that started `agent`:
+  // logged in its chat and, at work, handed to it; idle, it goes on with
+  // it (Tools.wake), unless the report is of a stop that ended it, which
+  // only wakes one waiting for none else. One that was stopped passes a
+  // report on to its own parent (a stop's report is only logged).
+  // false: it was Unii's to take (none of the chain is an agent)
+  export function upward(tools: Tools, agent: Agent, text: string, stopped: boolean): boolean {
+    for (let at = Tools.parent_of(tools, agent.name), n = 0; at !== null && n < 20; at = Tools.parent_of(tools, at), n++) {
+      const p = Tools.agent(tools, at);
+      if (p === null) {
+        return false;
+      }
+      tools.hooks.push(p, "work", text);
+      if (p.call !== null && !p.stop) {
+        p.call.send({ text, imgs: [] });
+        return true;
+      }
+      if (p.stop && p.call === null && p.waiting !== true) {
+        if (stopped) {
+          return true;
+        }
+        continue;
+      }
+      if (!stopped || (p.waiting === true && Tools.kids_active(tools, p.name).length === 0)) {
+        Tools.wake(tools, p);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  // an idle agent goes on from its log (what woke it is in it); one
+  // waiting for its agents keeps what it said so far for its report
+  export async function wake(tools: Tools, agent: Agent): Promise<void> {
+    if (agent.waking === true || agent.call !== null) {
+      return;
+    }
+    agent.waking = true;
+    const view = await Tools.view(tools, new AbortController().signal);
+    agent.waking = false;
+    if (typeof view === "string" || agent.call !== null) {
+      return;
+    }
+    const keep = agent.waiting === true ? agent.replies : [];
+    Tools.run(tools, Object.assign(agent, { view, replies: keep, stop: false, why: null, waiting: false }));
+  }
+
+  // the vigia (P82, P109): every agent at work is looked at each
+  // VIGIA.every; one with no sign of life for VIGIA.idle (no output, no
+  // tool call running: a tool's own limit ends it, Tools.job_limit; not
+  // waiting for a usage limit) is resumed once (its call stopped, then
+  // asked again from its log) and whoever started it is told; still
+  // stalled after that, it's stopped and reported stalled, a report its
+  // parent (or Unii) takes
+  export function vigia(tools: Tools, now: number): void {
+    for (const agent of Tools.working(tools)) {
+      if (agent.stop || agent.reviving === true || agent.parked === true || Object.keys(agent.calls).length > 0) {
+        continue;
+      }
+      const idle = now - (agent.seen ?? now);
+      if (idle < VIGIA.idle) {
+        continue;
+      }
+      const mins = Math.round(idle / 6e3) / 10;
+      if (agent.revived !== true) {
+        agent.revived = true;
+        agent.reviving = true;
+        agent.seen = now;
+        Tools.tell_parent(tools, agent, "[Vigia] " + Tools.named(tools, agent.name) + " ficou " + mins + " min sem sinal de vida: retomado uma vez. Se parar de novo, será dado como travado.");
+        agent.call?.stop();
+        continue;
+      }
+      agent.stuck = true;
+      agent.why = "Travado: " + mins + " min sem sinal de vida depois de retomado pelo vigia; parado pelo serve.";
+      Tools.tell_parent(tools, agent, "[Vigia] " + Tools.named(tools, agent.name) + " travou de novo (" + mins + " min sem sinal de vida): parado e relatado como travado.");
+      Tools.stop(tools, agent.name);
+    }
+  }
+
+  // the vigia's word to whoever started `agent`: a note in the chat
+  // (Unii's), or in its parent's log, handed to it if at work
+  export function tell_parent(tools: Tools, agent: Agent, text: string): void {
+    const at = Tools.parent_of(tools, agent.name);
+    const p = at === null ? null : Tools.agent(tools, at);
+    if (p === null) {
+      tools.hooks.note(text);
+      return;
+    }
+    tools.hooks.push(p, "note", text);
+    p.call?.send({ text, imgs: [] });
   }
 
   // what the work a restart cut is told as it goes on (Server.ts
@@ -841,7 +1114,9 @@ export namespace Tools {
     return "The server restarted, cutting " + work.join(", ") + "; nothing was lost: go on.";
   }
 
-  export async function tell(tools: Tools, name: string, message: string): Promise<string> {
+  // by: who tells it ("main": Unii; else the agent that started it, or
+  // one above)
+  export async function tell(tools: Tools, name: string, message: string, by = "main"): Promise<string> {
     const agent = Tools.agent(tools, name);
     if (agent === null) {
       return "No agent " + name + " to tell.";
@@ -856,24 +1131,32 @@ export namespace Tools {
       agent.call.send({ text: message, imgs: [] });
       return "Sent. " + name + " reads it between its tool calls, and its report answers it.";
     }
-    const view = await Tools.view(tools);
+    const view = await Tools.view(tools, by === "main" ? undefined : new AbortController().signal);
     if (typeof view === "string") {
       return view;
     }
+    if (agent.call !== null) {
+      return Tools.tell(tools, name, message, by);
+    }
     tools.hooks.push(agent, "user", message);
-    Tools.run(tools, Object.assign(agent, { view, replies: [], stop: false, why: null }));
+    Tools.run(tools, Object.assign(agent, { view, replies: [], stop: false, why: null, waiting: false }));
     return "Sent. " + name + "'s reply will reach you as a message.";
   }
 
-  export function start(tools: Tools, role: Agent["role"], task: string, view: Block[], label = ""): string {
+  // parent: the agent that starts it (P109); null: Unii
+  export function start(tools: Tools, role: Agent["role"], task: string, view: Block[], label = "", parent: string | null = null): string {
     const name = Memory.agent_new(tools.mem);
     const shown = Tools.label_clean(label);
-    const agent = { name, label: shown, role, call: null, live: [], calls: {}, stop: false, why: null, view, replies: [] };
+    const depth = parent === null ? 1 : Tools.depth(tools, parent) + 1;
+    const agent: Agent = { name, label: shown, role, call: null, live: [], calls: {}, stop: false, why: null, view, replies: [], parent, depth };
     tools.agents.set(name, agent);
     if (shown !== null) {
       tools.labels.set(name, shown);
     }
-    tools.hooks.push(agent, "note", SUB_NOTE + (role.model === null ? "" : SUB_ON + role.model) + (role.effort === null ? "" : SUB_AT + role.effort) + (shown === null ? "" : SUB_AS + shown));
+    if (parent !== null) {
+      tools.parents.set(name, parent);
+    }
+    tools.hooks.push(agent, "note", SUB_NOTE + (role.model === null ? "" : SUB_ON + role.model) + (role.effort === null ? "" : SUB_AT + role.effort) + (parent === null ? "" : SUB_OF + parent) + (shown === null ? "" : SUB_AS + shown));
     tools.hooks.push(agent, "user", task);
     Tools.run(tools, agent);
     return name;
@@ -885,7 +1168,12 @@ export namespace Tools {
     const note = log !== null && log.length > 0 && log[0].kind === "note" ? log[0].text : "";
     const sub = SUB_ROLE.exec(note);
     if (sub !== null) {
-      tools.agents.set(name, { name, label: Tools.label_clean(sub[3] ?? ""), role: { effort: sub[2] ?? null, model: sub[1] ?? null }, call: null, live: [], calls: {}, stop: false, why: null, view: [], replies: [] });
+      const parent = sub[3] ?? null;
+      tools.agents.set(name, { name, label: Tools.label_clean(sub[4] ?? ""), role: { effort: sub[2] ?? null, model: sub[1] ?? null }, call: null, live: [], calls: {}, stop: false, why: null, view: [], replies: [], parent });
+      if (parent !== null) {
+        tools.parents.set(name, parent);
+      }
+      tools.agents.get(name)!.depth = Tools.depth(tools, name);
     }
     return tools.agents.get(name) ?? null;
   }
@@ -915,7 +1203,7 @@ export namespace Tools {
   export function labels(mem: Memory): Map<string, string> {
     const out = new Map<string, string>();
     for (const [name, note] of Memory.agent_heads(mem)) {
-      const label = Tools.label_clean(SUB_ROLE.exec(note)?.[3] ?? "");
+      const label = Tools.label_clean(SUB_ROLE.exec(note)?.[4] ?? "");
       if (label !== null) {
         out.set(name, label);
       }
@@ -923,23 +1211,70 @@ export namespace Tools {
     return out;
   }
 
-  // an agent as Unii reads it: its name, its label after it if it has one
+  // who started each agent an agent started, by name, from its log's
+  // note (P109)
+  export function parents(mem: Memory): Map<string, string> {
+    const out = new Map<string, string>();
+    for (const [name, note] of Memory.agent_heads(mem)) {
+      const parent = SUB_ROLE.exec(note)?.[3];
+      if (parent !== undefined) {
+        out.set(name, parent);
+      }
+    }
+    return out;
+  }
+
+  // an agent as Unii reads it: its name, its label after it if it has one,
+  // and who started it if an agent did (P109)
   export function named(tools: Tools, name: string): string {
     const label = tools.labels.get(name);
-    return label === undefined ? name : name + " (" + label + ")";
+    const parent = Tools.parent_of(tools, name);
+    const said = [...(label === undefined ? [] : [label]), ...(parent === null ? [] : ["filho de " + parent])];
+    return said.length === 0 ? name : name + " (" + said.join(", ") + ")";
+  }
+
+  // the agents' labels as the views show them (Server.ts Chat.state):
+  // each one's own, and who started it if an agent did ("← Parent")
+  export function shown(tools: Tools): Record<string, string> {
+    const out: Record<string, string> = Object.fromEntries(tools.labels);
+    for (const [name, parent] of tools.parents) {
+      out[name] = (tools.labels.get(name) ?? name) + " ← " + (tools.labels.get(parent) ?? parent);
+    }
+    return out;
   }
 
   // calls while a message waits in its log (told too late for the call
   // before); then its report. Detached: a throw ends it as a failed
   // reply, still reported
+  // Each sign of life of a call (an event) is seen by the vigia
+  // (Tools.vigia); one it resumes is asked again from its log, told so.
+  // An agent that ends with agents of its own at work waits for them
+  // (P109): its report goes once their last one woke it and it ended
+  // again with none at work (Tools.upward, Tools.wake). A stalled one
+  // (stopped by the vigia) is reported as any, not as a stop
   export async function run(tools: Tools, agent: Agent): Promise<void> {
+    // (assigned as one: the vigia changes them while it awaits)
+    Object.assign(agent, { revived: false, reviving: false, stuck: false, waiting: false });
     try {
       for (let more = true; more; ) {
-        agent.call = AskAI.ask(Tools.ask(tools, agent), (ev) => tools.hooks.on(agent, ev));
+        agent.seen = Date.now();
+        agent.parked = false;
+        agent.call = AskAI.ask(Tools.ask(tools, agent), (ev) => {
+          agent.seen = Date.now();
+          if (ev.$ === "Limit") {
+            agent.parked = ev.limit !== null;
+          }
+          tools.hooks.on(agent, ev);
+        });
         tools.hooks.change();
         tools.hooks.agents?.();
         const end = await agent.call.done;
         agent.call = null;
+        if (agent.reviving === true && !agent.stop) {
+          agent.reviving = false;
+          tools.hooks.push(agent, "user", VIGIA_SAY);
+          continue;
+        }
         agent.replies.push(end.ok ? end.text : agent.why ?? "failed: " + end.text);
         more = end.ok && end.left.length > 0;
       }
@@ -947,7 +1282,15 @@ export namespace Tools {
       agent.call = null;
       agent.replies.push("failed: " + String(err?.message ?? err));
     }
-    tools.hooks.report(agent, report_text(agent.name, agent.replies.join("\n\n")), agent.stop);
+    const kids = agent.stop ? [] : Tools.kids_active(tools, agent.name);
+    if (kids.length > 0) {
+      agent.waiting = true;
+      tools.hooks.push(agent, "note", "Waiting for " + kids.map((k) => Tools.named(tools, k.name)).join(", ") + ": your report goes once they reported and you ended again.");
+      tools.hooks.change();
+      tools.hooks.agents?.();
+      return;
+    }
+    tools.hooks.report(agent, report_text(agent.name, agent.replies.join("\n\n")), agent.stop && agent.stuck !== true);
   }
 
   // a call of an agent, on Tools.pick
@@ -975,8 +1318,10 @@ export namespace Tools {
   }
 
   // a string: why there is none (Memory.settle)
-  export async function view(tools: Tools): Promise<Block[] | string> {
-    const why = await Memory.settle(tools.mem, tools.mem.count, tools.hooks.halt());
+  // halt: what stops the wait (Unii's turn's, by default; an agent's
+  // spawn or a report waking one waits on none of Unii's)
+  export async function view(tools: Tools, halt?: AbortSignal): Promise<Block[] | string> {
+    const why = await Memory.settle(tools.mem, tools.mem.count, halt ?? tools.hooks.halt());
     return why ?? Memory.view(tools.mem);
   }
 
@@ -989,24 +1334,38 @@ export namespace Tools {
   // HALT), then every process its shells started killed on each open
   // device (Machine.halt), so the answer says it ended and nothing of it
   // runs on, or what does. One not at work only has that sweep
-  export async function halt(tools: Tools, name: string, why: string): Promise<Out> {
+  // The agents it started, and theirs, are stopped with it (P109).
+  // by: who stops it ("main": Unii, else the agent above it)
+  export async function halt(tools: Tools, name: string, why: string, by = "main"): Promise<Out> {
     const agent = Tools.agent(tools, name);
     if (agent === null) {
       return { text: "No agent " + name + ".", fail: true };
     }
+    const who = by === "main" ? "Unii" : by;
+    const said = why.trim() === "" ? "." : ": " + why.trim().replace(/\.?$/, ".");
+    const tree = Tools.descendants(tools, name).filter(Tools.active);
+    for (const kid of tree) {
+      kid.why = "Stopped with " + name + ", stopped by " + who + said;
+    }
+    const calls = [agent, ...tree].map((a) => a.call).filter((c) => c !== null);
     const call = agent.call;
-    let ended = true;
+    const waited = agent.waiting === true;
     if (call !== null) {
       const live = agent.live.at(-1);
       const last = Object.values(agent.calls).at(-1) ?? (live && live.kind + ": " + live.text);
       const doing = last === undefined ? "" : " It was last at " + last.replace(/\s+/g, " ").slice(0, 300);
-      agent.why = "Stopped by Unii" + (why.trim() === "" ? "." : ": " + why.trim().replace(/\.?$/, ".")) + doing;
-      Tools.stop(tools, name);
-      ended = await Promise.race([call.done.then(() => true, () => true), Bun.sleep(HALT).then(() => false)]);
+      agent.why = "Stopped by " + who + said + doing;
+    } else if (waited) {
+      agent.why = "Stopped by " + who + " while waiting for the agents it started" + said;
     }
-    const left = await Tools.sweep(tools, name);
+    for (const a of [...tree, agent]) {
+      Tools.stop(tools, a.name);
+    }
+    const ended = await Promise.race([Promise.all(calls.map((c) => c.done.catch(() => {}))).then(() => true), Bun.sleep(HALT).then(() => false)]);
+    const left = (await Promise.all([name, ...tree.map((a) => a.name)].map((n) => Tools.sweep(tools, n)))).flat();
     const runs = left.length === 0 ? "" : " Still running: " + left.join("; ") + ".";
-    const text = call === null ? name + " isn't working: nothing to stop." + (left.length === 0 ? "" : runs) : ended ? "Stopped " + name + "." + runs : "Stopping " + name + ": it hasn't ended yet." + runs;
+    const with_ = tree.length === 0 ? "" : " With it: " + tree.map((a) => a.name).join(", ") + ".";
+    const text = call === null && !waited ? name + " isn't working: nothing to stop." + (left.length === 0 ? "" : runs) : ended ? "Stopped " + name + "." + with_ + runs : "Stopping " + name + ": it hasn't ended yet." + with_ + runs;
     return { text, fail: !ended || left.length > 0 };
   }
 
@@ -1027,11 +1386,23 @@ export namespace Tools {
     return outs.filter((o) => o !== null);
   }
 
-  // every agent at work (name null), or the one named
+  // every agent at work (name null), or the one named; one waiting for
+  // the agents it started (P109) ends at once: named, its report a
+  // stop's; with all (the user's stop, the server ending) it ends with no
+  // report, as its agents' (stopped too) are only logged in its chat, and
+  // after a restart the report of one resumed wakes it (Tools.upward)
   export function stop(tools: Tools, name: string | null): void {
     for (const agent of Tools.working(tools).filter((a) => name === null || a.name === name)) {
       agent.stop = true;
       agent.call?.stop();
+    }
+    for (const agent of [...tools.agents.values()].filter((a) => a.call === null && a.waiting === true && (name === null || a.name === name))) {
+      agent.stop = true;
+      agent.waiting = false;
+      if (name !== null) {
+        agent.replies.push(agent.why ?? "Stopped while waiting for the agents it started.");
+        tools.hooks.report(agent, report_text(agent.name, agent.replies.join("\n\n")), true);
+      }
     }
   }
 

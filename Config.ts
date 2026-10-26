@@ -110,6 +110,23 @@ export const TASK_STALL_HOURS = config_hours(config_get("task_stall", "4"), 4);
 // Guilherme." asks the user something (Tasks.questions_in, P87)
 export const OWNER_NAMES = config_get("owner_name", "").split(",").map((x) => x.trim()).filter((x) => x !== "");
 
+// agents that start agents (P109, 26/10/2026): how deep a tree of them
+// goes (Unii 0, its agents 1, theirs 2: config agents_depth or
+// UNII_AGENTS_DEPTH, 2 by default), how many may be at work under one
+// agent of Unii's (agents_front, 4) and in all (agents_max, 12); how long
+// an agent at work may go without a sign of life before the vigia takes
+// it as stalled (vigia_minutes, 10: Tools.vigia)
+export const AGENTS_DEPTH  = config_count(config_get("agents_depth", "2"), 2, 1, 5);
+export const AGENTS_FRONT  = config_count(config_get("agents_front", "4"), 4, 1, 50);
+export const AGENTS_MAX    = config_count(config_get("agents_max", "12"), 12, 1, 200);
+export const VIGIA_MINUTES = config_hours(config_get("vigia_minutes", "10"), 10);
+
+// a whole number in [min, max], else the default
+function config_count(x: string, def: number, min: number, max: number): number {
+  const n = Number(String(x).trim());
+  return Number.isInteger(n) && n >= min && n <= max ? n : def;
+}
+
 function config_hours(x: string, def: number): number {
   const n = Number(String(x).trim().replace(",", "."));
   return Number.isFinite(n) && n > 0 && n <= 24 * 30 ? n : def;

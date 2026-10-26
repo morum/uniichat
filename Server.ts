@@ -241,6 +241,12 @@ export namespace Chat {
   // Main.start). One that fails to open throws, and the server ends
   export function open(): Chat {
     const mem = Memory.load(CHAT, () => Chat.share(chat, Tools.prompt("compact")), Owner.act_put);
+    // the agents the server before left at work, read before anything
+    // here saves what runs now (Chat.change, as Chat.timed calls it),
+    // which made it none: they were never resumed after a restart (P109:
+    // an agent's tree, and Unii's own agents, went missing). Unii's turn
+    // is resumed as before (Chat.back's restart message is how it goes on)
+    const cut_agents = mem.work.filter((w) => w !== TURN);
     const tools = Tools.serve(mem, {
       push   : (agent, kind, text) => Chat.push(chat, agent, kind, text),
       note   : (text) => Chat.note(chat, text),
@@ -285,7 +291,7 @@ export namespace Chat {
     // Unii's turn cut by the stop, resumed: its end answers the threads
     // that wait for Unii (Chat.talked)
     const cut = mem.work.includes(TURN);
-    Chat.resume(chat, mem.work).finally(() => Chat.change(chat)).catch((err) => console.error("unii: resuming the chat: " + (err?.message ?? err)));
+    Chat.resume(chat, [...(cut ? [TURN] : []), ...cut_agents]).finally(() => Chat.change(chat)).catch((err) => console.error("unii: resuming the chat: " + (err?.message ?? err)));
     const back = Chat.back(chat);
     Chat.orphans(chat, cut || back);
     // AGENTES.md as the server starts: an agent the server before left at
@@ -757,13 +763,20 @@ export namespace Chat {
   }
 
   // an agent's report, once it ends: a turn of its own, unless stopped.
-  // It is taken as a post is, between the chat's other logging
+  // It is taken as a post is, between the chat's other logging. One an
+  // agent started goes to it instead (P109: Tools.upward), not to the
+  // chat
   export function report(chat: Chat, agent: Agent, text: string, stopped: boolean): void {
     delete chat.limits[agent.name];
     chat.fell.delete(agent.name);
     Chat.unanswered(chat, agent);
     Chat.live(chat, agent, []);
     Chat.hold(chat, () => {
+      if (Tools.upward(chat.tools, agent, text, stopped)) {
+        Chat.change(chat);
+        Chat.agents_md(chat);
+        return;
+      }
       const msg = { ...Chat.push(chat, null, "work", text), origin: "agent:" + agent.name };
       if (!stopped) {
         Chat.take(chat, msg);
@@ -1191,7 +1204,7 @@ export namespace Chat {
     const importing = batch && { done: batch.all - Chat.time(batch), total: batch.all, why, msgs: batch.b - batch.a, open: batch.open };
     const timers = chat.mem.timers.map((t) => ({ ...t, text: t.text.length > TIMER_TEXT ? t.text.slice(0, TIMER_TEXT) + "…" : t.text }));
     const mcp = config.MCP.map(({ name }) => ({ name, on: !chat.mem.off.includes(name) }));
-    const labels = Object.fromEntries(chat.tools.labels);
+    const labels = Tools.shown(chat.tools);
     const tasks = Tasks.tasks_view(Tasks.tasks_load(chat.mem.dir), Date.now());
     return { $: "state", busy: chat.busy, wait: Chat.waits(chat), agents, labels, pick: chat.pick, ...config.OFFER, importing, limits: chat.limits, timers, mcp, tasks, web: WEB_BUILD };
   }

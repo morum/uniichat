@@ -18,7 +18,14 @@ Features
   broader lines, and can zoom into any line down to the original message.
 - **Agents and devices.** Unii runs a shell, reads and edits files and
   views images and videos on your computers that run `unii device`. It
-  spawns subagents, which work in the background and report back.
+  spawns subagents, which work in the background and report back. A
+  subagent may spawn its own (Unii's are depth 1, theirs 2, no deeper;
+  at most 4 at work under one of Unii's, 12 in all): each report goes to
+  the agent that started it, which waits for its agents before its own.
+  No subagent may merge, push to main or tags, restart the serve or
+  deploy: the serve refuses such a shell command (Guard.ts). The vigia
+  resumes an agent silent for 10 minutes once, telling its parent (or
+  the chat), and reports it stalled if it stops again.
 - **Schedules, goals, imports.** It can message itself on a schedule,
   keep working until a `/goal` is met, and take in your past Claude Code
   and Codex sessions (or the websites' exports).
@@ -189,6 +196,11 @@ Settings page). Each may also be set as `UNII_<KEY>`, which wins. Besides
 - `owner_name`: your names as the chat calls you, comma-separated
   ("Guilherme"), so "depende da ordem do Guilherme" is a question to you
   (none by default; read at the start).
+- `agents_depth`, `agents_front`, `agents_max`: how deep a tree of
+  agents goes (2), how many may be at work under one agent of Unii's
+  (4) and in all (12); `vigia_minutes`: how long an agent at work may
+  show no sign of life (no output, no tool running, no usage limit)
+  before the vigia resumes it (10). All read at the start.
 
 The prompts: `~/.unii/prompt.md` (every turn; subagents get it too)
 and `~/.unii/compact.md` (every summary, nothing else) replace the
