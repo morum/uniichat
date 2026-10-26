@@ -198,7 +198,9 @@ Settings page). Each may also be set as `UNII_<KEY>`, which wins. Besides
   own Cursor sign-in), `cursor` (the CLI's executable; by default
   `cursor-agent` or `agent`, on the PATH or in `~/.local/bin`),
   `cursor_sandbox` (`bwrap`, the default, or `off`: never on a server
-  others' code may reach).
+  others' code may reach), `cursor_idle` (seconds a turn may go without
+  a word, no tool running, before it's stopped and asked once to go on:
+  600).
 - `apple`, `apns`: the iOS app's (ios/) App ID and push key id.
 - `task_stall`: hours a task of Unii's may stand still, with no
   `next_due`, before it's overdue (4 by default; read at the start).

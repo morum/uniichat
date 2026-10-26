@@ -149,6 +149,12 @@ export const CURSOR_LOGIN   = config_path(config_get("cursor_login", CURSOR_SUB 
 export const CURSOR         = config_path(config_get("cursor", ""));
 export const CURSOR_SANDBOX = config_get("cursor_sandbox", "bwrap") === "off" ? "off" : "bwrap";
 
+// how long a turn of cursor's may go without a word (no tool of ours
+// running) before it's stopped as stalled, in seconds: config
+// cursor_idle (600 by default: 10 min; before its first word, half that
+// at most 300); not a number above 10: the default
+export const CURSOR_IDLE = ((n) => (Number.isFinite(n) && n > 10 ? n : 600))(Number(config_get("cursor_idle", "600")));
+
 // the keys the environment gave (removed from it), and every key as used:
 // the environment's, else keys.json's
 const ENV_KEYS: Record<string, string> = Object.fromEntries(Object.entries(VARS).map(([name, v]) => [name, config_key(v)]));

@@ -35,11 +35,12 @@
 // ran no tool of ours and has a fallback goes on with it instead
 // (Agent.ts, on the same code as the others). One that did resumes its
 // session at the reset, told ON. A reset told is remembered (Agent.note,
-// "cursor"), so no call asks into it.
+// "cursor <model>"), so no call on that model asks into it.
 //
 // The CLI may go silent (it waits out a rate limit without a word, or
-// its service hangs): a turn with no line for IDLE (FIRST before any
-// came) and no tool of ours running is stopped. One that said nothing
+// its service hangs): a turn with no line for config `cursor_idle` (10
+// min; half that, 5 min at most, before any came) and no tool of ours
+// running is stopped. One that said nothing
 // yet is asked once more anew; one that did resumes its session once,
 // told to go on; silent again, the call ends: the service is down
 // (`off`, so a fallback goes on), its end saying it stalled.
@@ -137,8 +138,8 @@ const OFF = /cannot use this model|payment|billing|usage pricing|outdated client
 const SETUP: Setup = {
   bin     : config.CURSOR,
   sandbox : config.CURSOR_SANDBOX,
-  first   : 300e3,
-  idle    : 600e3,
+  first   : Math.min(300, config.CURSOR_IDLE / 2) * 1e3,
+  idle    : config.CURSOR_IDLE * 1e3,
   grace   : 5e3,
 };
 
@@ -389,7 +390,7 @@ export namespace Cursor {
     const used = { runs: 0, input: 0, output: 0, read: 0, write: 0 };
     try {
       for (let tries = 0, n = 0, stalls = 0; !signal.aborted; ) {
-        const until = Cursor.limited(woke);
+        const until = Cursor.limited(ask.model, woke);
         woke = false;
         if (until !== null) {
           const ms = until - Date.now();
@@ -439,7 +440,7 @@ export namespace Cursor {
         }
         if (got.limit !== undefined) {
           n += 1;
-          Cursor.note(got.limit.until);
+          Cursor.note(ask.model, got.limit.until);
           if (acted.v && session !== null) {
             resume = true;
           } else {
@@ -456,7 +457,7 @@ export namespace Cursor {
         if (got.ok !== true) {
           return { text: got.text, stop: got.stop, off: got.off, acted: acted.v };
         }
-        Cursor.note(null);
+        Cursor.note(ask.model, null);
         const says = sent.splice(0);
         if (says.length === 0 || session === null) {
           sent.unshift(...says);
@@ -481,15 +482,18 @@ export namespace Cursor {
   // Usage limits
   // ------------
 
-  // a limit told, kept till its reset (null: lifted, or not told)
-  export function note(until: number | null): void {
-    Agent.note("cursor", until);
+  // a limit told on a model, kept till its reset (null: lifted, or not
+  // told), as openai-sub's are: one model's (Cursor's limits name a
+  // model's family, or the plan: each model then hits it in turn), so a
+  // fallback to another model goes on
+  export function note(model: string, until: number | null): void {
+    Agent.note("cursor " + model, until);
   }
 
-  // the reset of the limit remembered (null: none, or a wake just ended
-  // its wait)
-  export function limited(woke: boolean): number | null {
-    return woke ? null : Agent.under(["cursor"], false);
+  // the reset of the limit remembered on a model (null: none, or a wake
+  // just ended its wait)
+  export function limited(model: string, woke: boolean): number | null {
+    return woke ? null : Agent.under(["cursor " + model], false);
   }
 
   // the limits told forgotten (for tests)
@@ -641,7 +645,13 @@ export namespace Cursor {
       case "tool_call": {
         const id = String(ev.call_id ?? "");
         const [name, call] = Cursor.tool(ev.tool_call);
-        if (ev.subtype === "started") {
+        // its lookup of an MCP tool's schema, before a first call: not logged
+        const lookup = name === "getMcpTools" && call?.result?.error === undefined;
+        if (ev.subtype === "started" && lookup) {
+          open.add(id);
+        } else if (ev.subtype === "completed" && lookup) {
+          open.delete(id);
+        } else if (ev.subtype === "started") {
           open.add(id);
           acted.v ||= name.startsWith("mcp__unii__");
           log({ $: "Entry", kind: "tool", text: name + " " + JSON.stringify(call?.args?.args ?? call?.args ?? {}), of: id });

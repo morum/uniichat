@@ -47,6 +47,8 @@ case "$msg" in
     say "ola"; done_ "ola $model" ;;
   *MODE:tool*)
     init
+    j '{"type":"tool_call","subtype":"started","call_id":"g1","tool_call":{"getMcpToolsToolCall":{"args":{"server":"unii","toolName":"shell"}}},"session_id":"'$sid'"}'
+    j '{"type":"tool_call","subtype":"completed","call_id":"g1","tool_call":{"getMcpToolsToolCall":{"args":{"server":"unii","toolName":"shell"},"result":{"success":{"content":"{}"}}}},"session_id":"'$sid'"}'
     j '{"type":"tool_call","subtype":"started","call_id":"t1","tool_call":{"mcpToolCall":{"args":{"name":"unii-shell","args":{"device":"d","command":"ls"},"providerIdentifier":"unii","toolName":"shell"}}},"session_id":"'$sid'"}'
     j '{"type":"tool_call","subtype":"completed","call_id":"t1","tool_call":{"mcpToolCall":{"args":{"name":"unii-shell","args":{"device":"d","command":"ls"},"providerIdentifier":"unii","toolName":"shell"},"result":{"success":{"content":[{"text":{"text":"a.txt"}}],"isError":false}}}},"session_id":"'$sid'"}'
     j '{"type":"tool_call","subtype":"started","call_id":"t2","tool_call":{"readToolCall":{"args":{"path":"/etc/x"}}},"session_id":"'$sid'"}'
@@ -196,10 +198,11 @@ describe("a call", () => {
     expect(end.acted).toBe(false);
   });
 
-  test("a tool of ours logged as Claude Code names it, its result; ours marks it acted, the CLI's own doesn't", async () => {
+  test("a tool of ours logged as Claude Code names it, its result; ours marks it acted, the CLI's own doesn't; its schema lookups unlogged", async () => {
     const { end, evs } = await call(ask("MODE:tool"));
     expect(end.ok).toBe(true);
     const entries = evs.filter((e) => e.$ === "Entry") as any[];
+    expect(entries.some((e) => /getMcpTools/.test(e.text) || e.of === "g1")).toBe(false);
     expect(entries.slice(0, 4).map((e) => [e.kind, e.text, e.of])).toEqual([
       ["tool", 'mcp__unii__shell {"device":"d","command":"ls"}', "t1"],
       ["echo", "a.txt", "t1"],
@@ -248,11 +251,13 @@ describe("a call", () => {
     expect([end.ok, end.stop, end.off, end.acted]).toEqual([false, "down", true, false]);
     expect(end.text).toContain("usage limit on cursor");
     expect(end.until).toBe(Date.parse("2099-01-01T05:00:00Z"));
-    expect(Agent.under(["cursor"], false)).toBe(Date.parse("2099-01-01T05:00:00Z"));
+    expect(Agent.under(["cursor claude-sonnet-5-5"], false)).toBe(Date.parse("2099-01-01T05:00:00Z"));
+    // another model's calls aren't held by it
+    expect(Agent.under(["cursor claude-opus-5-5"], false)).toBeNull();
   });
 
   test("under a limit remembered, a call with a fallback ends before asking", async () => {
-    Agent.note("cursor", Date.now() + 3600e3);
+    Agent.note("cursor claude-sonnet-5-5", Date.now() + 3600e3);
     const { end } = await call(ask("MODE:ok", { fallback: true }));
     expect([end.ok, end.off]).toEqual([false, true]);
     expect(end.text).toContain("usage limit on cursor");
