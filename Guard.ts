@@ -17,7 +17,13 @@
 // A subshell or group around the push, or a redirection glued to its last
 // word ((git push origin main), git push origin main>/dev/null), is read
 // as the push it holds: ), } and what a < or > starts are cut off a word's
-// end before its refspec is read.
+// end before its refspec is read. A redirection's target is a file, not a
+// refspec, glued or not: (git push origin feat/x) > main and git push
+// origin feat/x > main go through (HoneyPig, P109); & is read inside
+// 2>&1, >& and &>, so git push origin feat/x 2>&1 main is the push of main
+// it is, not a push and a command "1 main".
+// A backslash is read as a quote is: taken out (git push origin ma\in and
+// git push origin main\ are refused as git push origin main; HoneyPig).
 // Out of reach, as said above, and so let through (GreenPepper, P109): a
 // push that names the current branch by another of git's spellings (git
 // push origin HEAD~0, HEAD^, main^{}), a command held in a variable set
@@ -59,6 +65,10 @@ const PUSH_ALL = /(?:^|\s)--(?:all|mirror)(?=\s|$|=)/;
 const PUSH_TAGS = /(?:^|\s)(?:--tags|--follow-tags)(?=\s|$)|(?:^|\s)\+?(?:[^\s:]*:)?refs\/tags\//;
 // push's options that take the next word as their value
 const PUSH_VALUED = new Set(["-o", "--push-option", "--repo", "--exec", "--receive-pack"]);
+// a word that is a redirection (2>&1, >x, &>log, <<EOF), and one that is
+// only its operator, its target the next word (>, 2>>, &>, >&, <<)
+const REDIR = /^(?:\d*|&)[<>]/;
+const REDIR_OP = /^(?:\d*|&)[<>][<>&|-]*$/;
 
 // what only runs the command after it, and its options that take a value
 const RUNNERS: Record<string, string[]> = {
@@ -129,20 +139,29 @@ export const BANS: Ban[] = [
 
 // what follows git's push in a part (its remote and refspecs), each word
 // with what closes a subshell or group, or starts a redirection glued to
-// it, cut off its end: (git push origin main) and git push origin
-// main>/dev/null push main (a word that is a redirection, 2>&1 or >x, is
-// kept whole: push_unnamed skips it)
+// it, cut off its end ((git push origin main) and git push origin
+// main>/dev/null push main), and each redirection dropped with its
+// target, glued (2>&1, >/dev/null, &>log) or the next word (> main,
+// 2> log): the shell takes those, git never sees them
 export function after_push(p: string): string {
   const m = PUSH.exec(p);
   if (m === null) {
     return "";
   }
-  return p.slice(m.index + m[0].length).split(/(\s+)/).map((w) => {
-    if (/^\s*$/.test(w) || /^\d*[<>]/.test(w)) {
-      return w;
+  const ws = p.slice(m.index + m[0].length).split(/\s+/).filter((w) => w !== "");
+  const out: string[] = [];
+  for (let i = 0; i < ws.length; i++) {
+    const w = ws[i] ?? "";
+    if (REDIR_OP.test(w)) {
+      i += 1;
+      continue;
     }
-    return w.replace(/[<>].*$/, "").replace(/[)}]+$/, "");
-  }).join("");
+    if (REDIR.test(w)) {
+      continue;
+    }
+    out.push(w.replace(/&?[<>].*$/, "").replace(/[)}]+$/, ""));
+  }
+  return out.map((w) => " " + w).join("");
 }
 
 // whether a push leaves where it goes to git (a remote and no refspec, or
@@ -181,17 +200,19 @@ function push_unnamed(rest: string): boolean {
 }
 
 // a command's parts: split at ;, &&, ||, |, & and newlines (a line
-// continued with "\" is one), so one ban looks at one command; quotes are
-// not read, so a ban named only inside a quoted string still counts
-// (refused: never wrongly let through)
+// continued with "\" is one), so one ban looks at one command; an & in a
+// redirection (2>&1, >&, &>) is no split; quotes are not read, so a ban
+// named only inside a quoted string still counts (refused: never wrongly
+// let through)
 export function parts(command: string): string[] {
-  return command.replace(/\\\r?\n/g, " ").split(/\n|;|&&|\|\||\||&/).map((p) => p.replace(/\s+/g, " ").trim()).filter((p) => p !== "");
+  return command.replace(/\\\r?\n/g, " ").split(/\n|;|&&|\|\||\||(?<![<>])&(?!>)/).map((p) => p.replace(/\s+/g, " ").trim()).filter((p) => p !== "");
 }
 
-// a part with its quotes taken out: git push origin "HEAD:main" is git
-// push origin HEAD:main, 'gh' pr merge is gh pr merge
+// a part with its quotes and backslashes taken out: git push origin
+// "HEAD:main" is git push origin HEAD:main, 'gh' pr merge is gh pr
+// merge, git push origin ma\in and main\ are git push origin main
 function bare(p: string): string {
-  return p.replace(/["']/g, "");
+  return p.replace(/["'\\]/g, "");
 }
 
 // a part's words, as a shell reads them: a quoted string is one word (an
@@ -315,13 +336,16 @@ function targets(cmd: Cmd): boolean {
     ? new Set(["-s", "--signal", "-u", "--user", "-o", "--older-than", "-y", "--younger-than", "-n", "--ns", "-Z", "--context"])
     : new Set(["--signal", "-g", "--pgroup", "-G", "--group", "-P", "--parent", "-s", "--session", "-t", "--terminal", "-u", "--euid", "-U", "--uid", "--ns", "--nslist", "-q", "--queue", "-d", "--delimiter", "-F", "--pidfile", "--env", "--cgroup"]);
   for (let i = 0; i < cmd.args.length; i++) {
-    const a = cmd.args[i] ?? "";
-    if (/^\d*[<>]/.test(a)) {
-      if (/^\d*[<>]+$/.test(a)) {
-        i += 1;
-      }
+    // a redirection and its target (> log, 2>&1), or one glued to a word's
+    // end (pkill bun>/dev/null, bun&>log: the pattern is bun)
+    if (REDIR_OP.test(cmd.args[i] ?? "")) {
+      i += 1;
       continue;
     }
+    if (REDIR.test(cmd.args[i] ?? "")) {
+      continue;
+    }
+    const a = (cmd.args[i] ?? "").replace(/&?[<>].*$/, "");
     if (a.startsWith("-") && a !== "-" && a !== "--") {
       opts.push(a);
       if (valued.has(a)) {

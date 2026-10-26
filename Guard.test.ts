@@ -85,6 +85,21 @@ const NO = [
   "(git push origin HEAD)",
   "git push origin HEAD>/dev/null",
   "(git push --tags)",
+  // a backslash taken out as a quote is; an & inside a redirection is no
+  // split, so what follows it is still the push's (HoneyPig, P109)
+  "git push origin main\\",
+  "git push origin ma\\in",
+  "git pu\\sh origin main",
+  "git push origin feat/x \\> main",
+  "git push origin feat/x 2>&1 main",
+  "git push origin feat/x &> log main",
+  "git push origin feat/x >& log main",
+  "git push origin main&>/dev/null",
+  "git push origin > x main",
+  "git push origin feat/x '>' main",
+  "pkill bun>/dev/null",
+  "pkill bun&>/dev/null",
+  "pkill -f Cli.ts 2>&1 >/dev/null",
 ];
 
 const YES = [
@@ -123,12 +138,28 @@ const YES = [
   "(cd x && git push -u origin feat/main-fix)",
   "git push origin HEAD:feat/x>/dev/null",
   "git push origin feat/x 2>&1",
+  // a redirection's target is a file, not a refspec (HoneyPig, P109)
+  "(git push origin feat/x) > main",
+  "git push origin feat/x > main",
+  "git push origin feat/x 2> main",
+  "git push origin feat/x &> main",
+  "git push origin feat/x >main",
+  "git push -u origin feat/x 2>&1 | tail -3 &",
 ];
 
 test("a word's closing ) or } and a glued redirection are cut before its refspec is read", () => {
   expect(Guard.after_push("(git push origin main)")).toBe(" origin main");
-  expect(Guard.after_push("git push origin main>/dev/null 2>&1")).toBe(" origin main 2>&1");
+  expect(Guard.after_push("git push origin main>/dev/null 2>&1")).toBe(" origin main");
   expect(Guard.after_push("git push origin feat/x}")).toBe(" origin feat/x");
+  expect(Guard.after_push("(git push origin feat/x) > main")).toBe(" origin feat/x");
+  expect(Guard.after_push("git push origin feat/x 2>&1 main")).toBe(" origin feat/x main");
+  expect(Guard.after_push("git push origin main&>/dev/null")).toBe(" origin main");
+});
+
+test("an & inside a redirection doesn't split a command", () => {
+  expect(Guard.parts("git push origin feat/x 2>&1 main")).toEqual(["git push origin feat/x 2>&1 main"]);
+  expect(Guard.parts("a &> log b")).toEqual(["a &> log b"]);
+  expect(Guard.parts("a & b && c")).toEqual(["a", "b", "c"]);
 });
 
 // what the header says the guard doesn't read, fixed so a change to it is
