@@ -608,6 +608,7 @@ const SETTING: Record<string, [string, string]> = {
 const KEY: Record<string, [string, string]> = {
   anthropic : ["Anthropic key", "For claude-api's models."],
   openai    : ["OpenAI key", "For openai-api's models and dictation."],
+  cursor    : ["Cursor key", "For cursor's models, instead of `unii serve cursor`'s sign-in."],
   apns      : ["APNs key", "The .p8 key the iOS app's pushes are signed with."],
 };
 

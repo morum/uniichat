@@ -190,8 +190,9 @@ const LABEL = 60;
 const LABEL_POINTS = 2 * LABEL;
 const GRAPHEMES = new Intl.Segmenter("en", { granularity: "grapheme" });
 
-// the models a subagent may be given (Tools.call)
-const MODELS = Pick.models(config.OFFER.vendors, config.OFFER.models).map(([, m]) => m.label);
+// the models a subagent may be given (Tools.call): by label, or
+// "vendor:model" for one more than one vendor offers
+const MODELS = Pick.names(config.OFFER.vendors, config.OFFER.models);
 
 // the devices: how they work, in the system prompt (DEVICES); those open
 // now, at the start of each call's message (Tools.devices), so one
@@ -258,7 +259,7 @@ const NEXT_DUE_SPEC = { type: "string", description: "When the next step is due:
 const STATUS_SPEC = { type: "string", enum: ["open", "waiting_user", "blocked"], description: "An open task's status: open (being worked on); waiting_user (yours, waiting for something only the user can give: status_why says what; it shows in their Agora); blocked (status_why: why; unblock: what unblocks it). An order received is the user's pick, never set." };
 const AGENT_SPEC = { type: "string", description: "The agent at work on it now, by name (its generated name or its label): for a task of yours, who follows it up, so the views show it and a task with no agent at work is seen as stalled. \"\" for none." };
 const BOSS: Spec[] = [
-  spec("spawn", "Start one subagent per task, in parallel, and return their names at once. Each one's report reaches you as a message \"[Name] report\" when it finishes. A subagent sees the view and the user's instructions, but knows what you want only from its task.", { tasks: { type: "array", items: STR }, labels: { type: "array", items: STR, description: "A short label per task, in the tasks' order, that the user reads as that subagent's name instead of its generated one: <project>-<role>, as num-3182-verifier or uniichat-links-impl. Give one for every task. You still name it by its generated name in tell, stop and zoom." }, effort: { type: "string", enum: EFFORTS, description: "How hard they think; by default, as hard as you." }, model: { type: "string", enum: MODELS, description: "Their model; by default, the one they'd run on. Set it ONLY when the user asks for that model or vendor in this chat, since another vendor may come with additional costs." } }, ["tasks"]),
+  spec("spawn", "Start one subagent per task, in parallel, and return their names at once. Each one's report reaches you as a message \"[Name] report\" when it finishes. A subagent sees the view and the user's instructions, but knows what you want only from its task.", { tasks: { type: "array", items: STR }, labels: { type: "array", items: STR, description: "A short label per task, in the tasks' order, that the user reads as that subagent's name instead of its generated one: <project>-<role>, as num-3182-verifier or uniichat-links-impl. Give one for every task. You still name it by its generated name in tell, stop and zoom." }, effort: { type: "string", enum: EFFORTS, description: "How hard they think; by default, as hard as you." }, model: { type: "string", enum: MODELS, description: "Their model (\"vendor:model\" names its vendor too, as cursor:sonnet-5.5); by default, the one they'd run on. Set it ONLY when the user asks for that model or vendor in this chat, since another vendor may come with additional costs." } }, ["tasks"]),
   spec("tell", "Send a message to a subagent, by name. One at work reads it between its tool calls, and its report answers it; an idle one goes on from its chat, and its reply reaches you as a message \"[Name] reply\".", { name: STR, message: STR }, ["name", "message"]),
   spec("schedule", "Schedule a message to yourself: at its time it reaches you as a message \"[Timer id]\" from the timer, not the user, starting a turn as a report does, whether or not the user is online. Give `at` to send it once, or `cron` to send it again and again, and the time zone both are read in (the user's). Write the message as the task to do then, whole: by then this turn is far back in the view.", {
     message : STR,
