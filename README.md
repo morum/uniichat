@@ -23,9 +23,12 @@ Features
   at most 4 at work under one of Unii's, 12 in all): each report goes to
   the agent that started it, which waits for its agents before its own.
   No subagent may merge, push to main or tags, restart the serve or
-  deploy: the serve refuses such a shell command (Guard.ts). The vigia
-  resumes an agent silent for 10 minutes once, telling its parent (or
-  the chat), and reports it stalled if it stops again.
+  deploy: the serve refuses such a shell command (Guard.ts), and a push
+  that doesn't name its branch (`git push`, `git push origin HEAD`),
+  which may land on main; `git push origin HEAD:feat/x` goes through.
+  The vigia resumes an agent silent for 10 minutes once, telling its
+  parent (or the chat), and reports it stalled if it stops again, or if
+  its call doesn't end a minute after the vigia stopped it.
 - **Schedules, goals, imports.** It can message itself on a schedule,
   keep working until a `/goal` is met, and take in your past Claude Code
   and Codex sessions (or the websites' exports).

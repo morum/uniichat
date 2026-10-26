@@ -245,8 +245,12 @@ export namespace Chat {
     // here saves what runs now (Chat.change, as Chat.timed calls it),
     // which made it none: they were never resumed after a restart (P109:
     // an agent's tree, and Unii's own agents, went missing). Unii's turn
-    // is resumed as before (Chat.back's restart message is how it goes on)
+    // is resumed as before (Chat.back's restart message is how it goes on).
+    // Unii's turn cut by the stop is read here too, for the same reason:
+    // read after, it was never there (ShinyRhino, P109), so the turn wasn't
+    // resumed and Chat.orphans gave its threads back as unanswered
     const cut_agents = mem.work.filter((w) => w !== TURN);
+    const cut = mem.work.includes(TURN);
     const tools = Tools.serve(mem, {
       push   : (agent, kind, text) => Chat.push(chat, agent, kind, text),
       note   : (text) => Chat.note(chat, text),
@@ -289,10 +293,11 @@ export namespace Chat {
     Memory.pump(mem);
     Chat.progress(chat);
     // Unii's turn cut by the stop, resumed: its end answers the threads
-    // that wait for Unii (Chat.talked)
-    const cut = mem.work.includes(TURN);
-    Chat.resume(chat, [...(cut ? [TURN] : []), ...cut_agents]).finally(() => Chat.change(chat)).catch((err) => console.error("unii: resuming the chat: " + (err?.message ?? err)));
+    // that wait for Unii (Chat.talked). A restart Unii asked (the restart
+    // tool, which cuts its own turn) goes on by its "[Restart]" message
+    // (Chat.back) instead: one turn, not two
     const back = Chat.back(chat);
+    Chat.resume(chat, [...(cut && !back ? [TURN] : []), ...cut_agents]).finally(() => Chat.change(chat)).catch((err) => console.error("unii: resuming the chat: " + (err?.message ?? err)));
     Chat.orphans(chat, cut || back);
     // AGENTES.md as the server starts: an agent the server before left at
     // work, and not resumed, is said cut (after the boot, not in its way)

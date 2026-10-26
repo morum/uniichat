@@ -91,6 +91,11 @@ export type Agent = {
   revived?  : boolean;
   reviving? : boolean;
   stuck?    : boolean;
+  // when the vigia stopped its call (to resume it, or as stalled): one
+  // that hasn't ended VIGIA.grace later is let go (Tools.abandon); run:
+  // the run (Tools.run) its call belongs to, so one let go ends unsaid
+  since?    : number;
+  run?      : symbol;
 };
 
 // what the server does for agents (report: work stopped stays unanswered;
@@ -134,10 +139,17 @@ export const SEARCHES = 10;
 // how long the stop tool waits for its agent to end (ms)
 const HALT = 5000;
 
+// how a refusal of the serve's starts (a spawn past the tree's limits:
+// Tools.spawn_check), so the call says it failed
+const REFUSED = "Recusado pelo serve: ";
+
 // the vigia (Tools.vigia): how long an agent at work may show no sign of
 // life (config vigia_minutes), how often it looks (ms; the tests set
 // both), and what a call it resumed is told
-export const VIGIA = { idle: config.VIGIA_MINUTES * 60_000, every: Math.min(30_000, Math.max(1000, config.VIGIA_MINUTES * 15_000)) };
+// grace: how long a call the vigia stopped may take to end before the
+// serve lets it go and reports the agent stalled (ShinyRhino, P109: a
+// call that never ended kept its agent "at work" forever, unreported)
+export const VIGIA = { idle: config.VIGIA_MINUTES * 60_000, every: Math.min(30_000, Math.max(1000, config.VIGIA_MINUTES * 15_000)), grace: 60_000 };
 const VIGIA_SAY = "[Vigia] Your call showed no sign of life for " + config.VIGIA_MINUTES + " minutes, so the serve stopped it and asked again from your log: go on from where you were. If you are stalled again, you'll be stopped and reported stalled.";
 
 // how long past a device's own limit for a shell or view_video job the
@@ -197,7 +209,9 @@ once none of yours is at work, with all you said meanwhile.
 What no subagent does, whoever started it, by the user's order: merge a
 pull request, push to main or master, push tags, restart or stop the
 serve, deploy or apply infrastructure. The serve refuses a shell
-command that does one of these; don't look for another way (a script,
+command that does one of these, and a push that doesn't name the branch
+it goes to (git push, git push origin HEAD: name it, as git push origin
+HEAD:feat/x); don't look for another way (a script,
 an alias): say in your report what is left, for Unii to take to the
 user. Agents you start inherit this.
 
@@ -390,7 +404,7 @@ const CREW_INFO: Record<string, string> = {
   tell  : "Send a message to an agent you started (or one of theirs), by name. One at work reads it between its tool calls; an idle one goes on, and its reply reaches you as a message \"[Name]\".",
   stop  : "Stop an agent you started (or one of theirs), by name, at once, and the agents it started. Its report says it was stopped.",
 };
-const CREW: Spec[] = BOSS.filter((s) => s.name in CREW_INFO).map((s) => ({ ...s, info: CREW_INFO[s.name] }));
+const CREW: Spec[] = BOSS.filter((s) => s.name in CREW_INFO).map((s) => ({ ...s, info: CREW_INFO[s.name] ?? s.info }));
 const DEVICE = { device: { type: "string", description: "The name of the device to run on, one listed under Devices." } };
 function kit(who: string): Spec[] {
   return TOOLS.map((t) => {
@@ -632,7 +646,8 @@ export namespace Tools {
         if (no !== null) {
           return { text: no, fail: true };
         }
-        return { text: await Tools.spawn(tools, tasks, effort, model, labels, who), fail: false };
+        const text = await Tools.spawn(tools, tasks, effort, model, labels, who);
+        return { text, fail: text.startsWith(REFUSED) };
       }
       case "tell": {
         const no = Tools.reach(tools, who, String(args.name));
@@ -918,6 +933,14 @@ export namespace Tools {
     if (typeof view === "string") {
       return view;
     }
+    // the limits again, now: another spawn may have started agents while
+    // this one waited for the view (ShinyRhino, P109: two at once both
+    // passed the check made before it). From here to each start nothing
+    // awaits, and a start holds its place at once (Tools.run sets its call)
+    const no = Tools.spawn_check(tools, by, tasks.length);
+    if (no !== null) {
+      return no;
+    }
     const names = tasks.map((task, k) => Tools.start(tools, { effort, model }, task, view, labels[k] ?? "", parent));
     return "Started " + names.map((name) => Tools.named(tools, name)).join(", ") + ". Each one's report will reach you as a message when it finishes.";
   }
@@ -1072,6 +1095,16 @@ export namespace Tools {
   // parent (or Unii) takes
   export function vigia(tools: Tools, now: number): void {
     for (const agent of Tools.working(tools)) {
+      // a call the vigia stopped that hasn't ended: let go, reported
+      // stalled (its run ends unsaid if it ever does)
+      if ((agent.reviving === true || agent.stuck === true) && now - (agent.since ?? now) >= VIGIA.grace) {
+        const secs = Math.round((now - (agent.since ?? now)) / 1000);
+        const how = agent.reviving === true ? "retomado" : "parado";
+        agent.why = "Travado: a chamada não encerrou " + secs + " s depois de " + how + " pelo vigia; o serve a abandonou.";
+        Tools.tell_parent(tools, agent, "[Vigia] " + Tools.named(tools, agent.name) + " não encerrou " + secs + " s depois de " + how + ": abandonado e relatado como travado.");
+        Tools.abandon(tools, agent);
+        continue;
+      }
       if (agent.stop || agent.reviving === true || agent.parked === true || Object.keys(agent.calls).length > 0) {
         continue;
       }
@@ -1083,16 +1116,36 @@ export namespace Tools {
       if (agent.revived !== true) {
         agent.revived = true;
         agent.reviving = true;
+        agent.since = now;
         agent.seen = now;
         Tools.tell_parent(tools, agent, "[Vigia] " + Tools.named(tools, agent.name) + " ficou " + mins + " min sem sinal de vida: retomado uma vez. Se parar de novo, será dado como travado.");
         agent.call?.stop();
         continue;
       }
       agent.stuck = true;
+      agent.since = now;
       agent.why = "Travado: " + mins + " min sem sinal de vida depois de retomado pelo vigia; parado pelo serve.";
       Tools.tell_parent(tools, agent, "[Vigia] " + Tools.named(tools, agent.name) + " travou de novo (" + mins + " min sem sinal de vida): parado e relatado como travado.");
       Tools.stop(tools, agent.name);
     }
+  }
+
+  // an agent whose call the vigia stopped and that never ended, let go:
+  // no longer at work (its place in the tree's limits freed), its
+  // processes swept, reported stalled (not as a stop, so its parent or
+  // Unii takes it); the run that awaits that call ends unsaid (Tools.run)
+  export function abandon(tools: Tools, agent: Agent): void {
+    agent.run = undefined;
+    agent.call = null;
+    agent.calls = {};
+    agent.reviving = false;
+    agent.stuck = true;
+    agent.stop = true;
+    agent.replies.push(agent.why ?? "Travado.");
+    Tools.sweep(tools, agent.name).catch(() => {});
+    tools.hooks.change();
+    tools.hooks.agents?.();
+    tools.hooks.report(agent, report_text(agent.name, agent.replies.join("\n\n")), false);
   }
 
   // the vigia's word to whoever started `agent`: a note in the chat
@@ -1254,7 +1307,8 @@ export namespace Tools {
   // (stopped by the vigia) is reported as any, not as a stop
   export async function run(tools: Tools, agent: Agent): Promise<void> {
     // (assigned as one: the vigia changes them while it awaits)
-    Object.assign(agent, { revived: false, reviving: false, stuck: false, waiting: false });
+    const mine = Symbol(agent.name);
+    Object.assign(agent, { revived: false, reviving: false, stuck: false, waiting: false, since: undefined, run: mine });
     try {
       for (let more = true; more; ) {
         agent.seen = Date.now();
@@ -1269,6 +1323,11 @@ export namespace Tools {
         tools.hooks.change();
         tools.hooks.agents?.();
         const end = await agent.call.done;
+        // let go by the vigia (Tools.abandon), or started again since:
+        // this run is over, said by whoever took it
+        if (agent.run !== mine) {
+          return;
+        }
         agent.call = null;
         if (agent.reviving === true && !agent.stop) {
           agent.reviving = false;
@@ -1279,6 +1338,9 @@ export namespace Tools {
         more = end.ok && end.left.length > 0;
       }
     } catch (err: any) {
+      if (agent.run !== mine) {
+        return;
+      }
       agent.call = null;
       agent.replies.push("failed: " + String(err?.message ?? err));
     }

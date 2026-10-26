@@ -8,8 +8,10 @@
 // waits for its agents before its own report reaches the chat; a stop
 // takes the tree with it; a subagent's shell command that merges,
 // pushes to main, restarts or deploys is refused; the vigia resumes a
-// stalled agent once, telling its parent, then reports it stalled. The
-// AI is a fake whose agents' calls end only when the test says.
+// stalled agent once, telling its parent, then reports it stalled, and
+// lets go of a call that doesn't end when stopped; two spawns at once
+// can't both pass the caps. The AI is a fake whose agents' calls end only
+// when the test says (or, for the deaf ones, never, even stopped).
 
 import { afterAll, expect, test } from "bun:test";
 import * as fs from "node:fs";
@@ -30,6 +32,8 @@ afterAll(() => {
 // an agent's call: what it was sent, whether stopped, how to end it
 type Fake = { name: string; sent: string[]; stopped: boolean; end: (e: End) => void; ask: Ask };
 const CALLS: Fake[] = [];
+// agents whose calls don't end when stopped (a hung connection)
+const DEAF = new Set<string>();
 (AskAI as any).ask = (ask: Ask) => {
   if (!ask.agent) {
     return { send: () => {}, stop: () => {}, wake: () => {}, done: Promise.resolve({ ok: true, text: "ok", left: [] }) };
@@ -41,7 +45,9 @@ const CALLS: Fake[] = [];
     send: (s: { text: string }) => fake.sent.push(s.text),
     stop: () => {
       fake.stopped = true;
-      resolve({ ok: false, text: "stopped", left: [] });
+      if (!DEAF.has(fake.name)) {
+        resolve({ ok: false, text: "stopped", left: [] });
+      }
     },
     wake: () => {},
     done: promise,
@@ -59,7 +65,14 @@ const finish = async (name: string, text: string) => {
 };
 const log = (name: string) => Memory.agent(tools.mem, name)!.map((r) => r.kind + ": " + r.text);
 const chat_texts = () => Array.from({ length: chat.mem.count }, (_, i) => Memory.message(chat.mem, i)).filter((m) => m !== null).map((m) => m!.kind + ": " + m!.text);
-const started = (text: string) => [...text.matchAll(/\b([A-Z][a-z]+[A-Z][a-z]+)\b/g)].map((m) => m[1]).filter((n) => tools.agents.has(n));
+const started = (text: string) => [...text.matchAll(/\b([A-Z][a-z]+[A-Z][a-z]+)\b/g)].map((m) => m[1] ?? "").filter((n) => tools.agents.has(n));
+const first = (names: string[]): string => {
+  const n = names[0];
+  if (n === undefined) {
+    throw new Error("no agent started");
+  }
+  return n;
+};
 
 let C = "";
 let K1 = "";
@@ -67,7 +80,7 @@ let K2 = "";
 
 test("a subagent gets spawn, tell and stop; Unii's tools stay Unii's", async () => {
   const out = await call("main", "spawn", { tasks: ["coordene"], labels: ["p109-coordenador"] });
-  C = started(out.text)[0];
+  C = first(started(out.text));
   const listed = await Tools.answer(tools, C, "tools/list", {}, new AbortController().signal, "x") as { tools: { name: string }[] };
   const names = listed.tools.map((t) => t.name);
   expect(names).toContain("spawn");
@@ -82,7 +95,9 @@ test("a subagent gets spawn, tell and stop; Unii's tools stay Unii's", async () 
 test("a coordinator starts 2 agents: their notes name it, depth 2, names and labels show it", async () => {
   const out = await call(C, "spawn", { tasks: ["parte A", "parte B"], labels: ["p109-a", "p109-b"] });
   expect(out.fail).toBe(false);
-  [K1, K2] = started(out.text).filter((n) => n !== C);
+  const two = started(out.text).filter((n) => n !== C);
+  K1 = first(two);
+  K2 = first(two.slice(1));
   expect(log(K1)[0]).toBe("note: subagent, child of " + C + ", labeled p109-a");
   expect(Tools.depth(tools, K1)).toBe(2);
   expect(Tools.depth(tools, C)).toBe(1);
@@ -124,7 +139,7 @@ test("the whole cap: 12 at work in all, Unii's spawns too", async () => {
 });
 
 test("tell and stop reach only an agent's own", async () => {
-  const other = started((await call("main", "spawn", { tasks: ["outra frente"] })).text)[0];
+  const other = first(started((await call("main", "spawn", { tasks: ["outra frente"] })).text));
   const tell = await call(C, "tell", { name: other, message: "oi" });
   expect(tell.fail).toBe(true);
   expect(tell.text).toContain("não foi criado por você");
@@ -139,6 +154,13 @@ test("a subagent's merge, push to main, restart or deploy is refused before any 
     const out = await call(K2, "shell", { device: "nenhum", command });
     expect(out.fail).toBe(true);
     expect(out.text).toStartWith("Recusado pelo serve: subagentes não podem");
+  }
+  // quoted, by its path, or killing the serve by name (ShinyRhino)
+  for (const command of ["git push origin \"HEAD:main\"", "/usr/bin/gh pr merge 22", "curl -X PUT https://api.github.com/repos/a/b/pulls/1/merge", "git push origin HEAD", "pkill -f bun"]) {
+    expect((await call(K2, "shell", { device: "nenhum", command })).text).toStartWith("Recusado pelo serve: subagentes não podem");
+  }
+  for (const command of ["grep -r 'pkill bun' .", "pkill -f 'bun test'", "git push origin HEAD:feat/x"]) {
+    expect((await call(K2, "shell", { device: "nenhum", command })).text).toStartWith("No device nenhum");
   }
   // anything else reaches the device check
   expect((await call(K2, "shell", { device: "nenhum", command: "git push -u origin feat/x" })).text).toStartWith("No device nenhum");
@@ -173,7 +195,7 @@ test("each report goes to the agent that started it, which waits for its agents 
 });
 
 test("a stop takes the agents it started with it", async () => {
-  const c2 = started((await call("main", "spawn", { tasks: ["coordene 2"] })).text)[0];
+  const c2 = first(started((await call("main", "spawn", { tasks: ["coordene 2"] })).text));
   const kids = started((await call(c2, "spawn", { tasks: ["x", "y"] })).text).filter((n) => n !== c2);
   expect(kids.length).toBe(2);
   const out = await call("main", "stop", { name: c2, why: "teste" });
@@ -186,8 +208,8 @@ test("a stop takes the agents it started with it", async () => {
 });
 
 test("the vigia: a stalled agent is resumed once, its parent told; stalled again, it's reported stalled", async () => {
-  const c3 = started((await call("main", "spawn", { tasks: ["coordene 3"] })).text)[0];
-  const k = started((await call(c3, "spawn", { tasks: ["vai travar"] })).text).filter((n) => n !== c3)[0];
+  const c3 = first(started((await call("main", "spawn", { tasks: ["coordene 3"] })).text));
+  const k = first(started((await call(c3, "spawn", { tasks: ["vai travar"] })).text).filter((n) => n !== c3));
   const agent = tools.agents.get(k)!;
   const was = VIGIA.idle;
   VIGIA.idle = 1000;
@@ -222,4 +244,81 @@ test("the vigia: a stalled agent is resumed once, its parent told; stalled again
     VIGIA.idle = was;
   }
   await call("main", "stop", { name: c3 });
+});
+
+test("the vigia lets go of a call that doesn't end when it resumes it: reported stalled, its place freed", async () => {
+  const c5 = first(started((await call("main", "spawn", { tasks: ["coordene 5"] })).text));
+  const k = first(started((await call(c5, "spawn", { tasks: ["conexão pendurada"] })).text).filter((n) => n !== c5));
+  const agent = tools.agents.get(k)!;
+  const was = { ...VIGIA };
+  VIGIA.idle = 1000;
+  VIGIA.grace = 1000;
+  DEAF.add(k);
+  try {
+    const t0 = Date.now();
+    // its parent shows life all along (the vigia leaves it be)
+    tools.agents.get(c5)!.seen = t0 + 60_000;
+    agent.seen = t0 - 5000;
+    Tools.vigia(tools, t0);
+    expect(last(k).stopped).toBe(true);
+    expect(agent.reviving).toBe(true);
+    // within the grace: still waited for
+    Tools.vigia(tools, t0 + 500);
+    expect(agent.call).not.toBe(null);
+    // past it: let go, reported stalled to its parent (not as a stop)
+    Tools.vigia(tools, t0 + 1500);
+    await Bun.sleep(60);
+    expect(agent.call).toBe(null);
+    expect(Tools.active(agent)).toBe(false);
+    expect(log(c5).some((t) => t.startsWith("note: [Vigia] " + k) && t.includes("não encerrou"))).toBe(true);
+    expect(log(c5).some((t) => t.startsWith("work: [" + k + "]") && t.includes("Travado: a chamada não encerrou"))).toBe(true);
+    expect(last(c5).sent.some((t) => t.includes("Travado: a chamada não encerrou"))).toBe(true);
+    // the call ending late says nothing more, and starts nothing
+    const reports = log(c5).filter((t) => t.startsWith("work: [" + k + "]")).length;
+    last(k).end({ ok: true, text: "tarde demais", left: [] });
+    await Bun.sleep(60);
+    expect(log(c5).filter((t) => t.startsWith("work: [" + k + "]")).length).toBe(reports);
+    expect(calls(k)).toBe(1);
+  } finally {
+    Object.assign(VIGIA, was);
+    DEAF.delete(k);
+  }
+  await call("main", "stop", { name: c5 });
+});
+
+test("the vigia lets go of a call that doesn't end when it's stopped as stalled again", async () => {
+  const k = first(started((await call("main", "spawn", { tasks: ["trava duas vezes"] })).text));
+  const agent = tools.agents.get(k)!;
+  const was = { ...VIGIA };
+  VIGIA.idle = 1000;
+  VIGIA.grace = 1000;
+  try {
+    const t0 = Date.now();
+    agent.seen = t0 - 5000;
+    Tools.vigia(tools, t0);
+    await Bun.sleep(60);
+    expect(calls(k)).toBe(2);
+    DEAF.add(k);
+    agent.seen = t0 - 5000;
+    Tools.vigia(tools, t0 + 10);
+    expect(agent.stuck).toBe(true);
+    expect(agent.call).not.toBe(null);
+    Tools.vigia(tools, t0 + 1100);
+    await Bun.sleep(60);
+    expect(agent.call).toBe(null);
+    expect(chat_texts().some((t) => t.startsWith("work: [" + k + "]") && t.includes("Travado: a chamada não encerrou"))).toBe(true);
+  } finally {
+    Object.assign(VIGIA, was);
+    DEAF.delete(k);
+  }
+});
+
+test("two spawns at once can't both pass the front's cap", async () => {
+  const c6 = first(started((await call("main", "spawn", { tasks: ["coordene 6"] })).text));
+  const [a, b] = await Promise.all([call(c6, "spawn", { tasks: ["r1", "r2", "r3"] }), call(c6, "spawn", { tasks: ["r4", "r5", "r6"] })]);
+  const outs = [a!, b!];
+  expect(outs.filter((o) => o.fail).length).toBe(1);
+  expect(outs.find((o) => o.fail)!.text).toContain("teto por frente é 4; cabem 1");
+  expect(Tools.descendants(tools, c6).filter(Tools.active).length).toBe(3);
+  await call("main", "stop", { name: c6 });
 });
