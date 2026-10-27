@@ -34,7 +34,6 @@
 
 set -euo pipefail
 
-NUMIH_HOME="${NUMIH_HOME:-$HOME/.unii/numih}"
 REMOTE_BASE="${NUMIH_REMOTE_BASE:-https://github.com/Numih}"
 BRANCH=main
 BASE_REPOS=(workspace cursor)
@@ -55,6 +54,25 @@ case "${1:-}" in
     case "${1:-}" in ""|help|-h|--help) exit 0 ;; *) exit 2 ;; esac
     ;;
 esac
+
+# Classes ASCII explícitas: num locale como en_US.UTF-8, [A-Za-z0-9] casa é, ñ
+# e [0-9] casa algarismos de outras escritas (٣). As listas abaixo não
+# dependem do locale.
+ASCII_ALNUM='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+RE_NOME="^[$ASCII_ALNUM][$ASCII_ALNUM._-]*\$"
+RE_NUM='^[0123456789]+$'
+RE_NUM_POS='^[123456789][0123456789]*$'
+
+# HOME: as guardas abaixo protegem o HOME e ~/repository; sem ele (ou com ele
+# vazio ou relativo) não há o que proteger com segurança. Vale para todos os
+# subcomandos, antes de qualquer criação, trava ou busca.
+if [ -z "${HOME+x}" ]; then erro "HOME não está definido; defina-o (o numih-sync precisa dele para proteger o HOME e ~/repository)"; exit 1; fi
+if [ -z "$HOME" ]; then erro "HOME está vazio; defina-o (o numih-sync precisa dele para proteger o HOME e ~/repository)"; exit 1; fi
+case "$HOME" in
+  /*) ;;
+  *) erro "HOME precisa ser absoluto: $HOME"; exit 1 ;;
+esac
+NUMIH_HOME="${NUMIH_HOME:-$HOME/.unii/numih}"
 
 # --- guarda de caminho: só opera dentro de $NUMIH_HOME, nunca em ~/repository
 case "$NUMIH_HOME" in
@@ -79,8 +97,8 @@ esac
 case "$HOME_REAL/" in
   "$NUMIH_HOME"/*) erro "NUMIH_HOME não pode ser o HOME, um diretório acima dele nem a raiz ($NUMIH_HOME)"; exit 1 ;;
 esac
-if ! [[ "$LOCK_WAIT" =~ ^[0-9]+$ ]]; then erro "NUMIH_LOCK_WAIT precisa ser um número de segundos: $LOCK_WAIT"; exit 1; fi
-if ! [[ "$FETCH_TIMEOUT" =~ ^[1-9][0-9]*$ ]]; then erro "NUMIH_FETCH_TIMEOUT precisa ser um número de segundos maior que zero: $FETCH_TIMEOUT"; exit 1; fi
+if ! [[ "$LOCK_WAIT" =~ $RE_NUM ]]; then erro "NUMIH_LOCK_WAIT precisa ser um número de segundos: $LOCK_WAIT"; exit 1; fi
+if ! [[ "$FETCH_TIMEOUT" =~ $RE_NUM_POS ]]; then erro "NUMIH_FETCH_TIMEOUT precisa ser um número de segundos maior que zero: $FETCH_TIMEOUT"; exit 1; fi
 
 # Rede sem interação: nada de pedir usuário/senha no terminal ou por janela.
 export GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=false SSH_ASKPASS_REQUIRE=never
@@ -103,12 +121,44 @@ g() { git -C "$1" "${GIT_OPTS[@]}" "${@:2}" 9>&-; }
 
 # Clone e busca com prazo: um remoto que pendura não segura a trava para sempre.
 # Devolve o código do comando; 124 ou 137 = prazo estourado.
+#
+# O timeout põe o git num grupo de processos próprio. Ao fim do prazo manda
+# TERM ao grupo e, 10 s depois, KILL, mas só enquanto o git vive: um filho do
+# git que ignore TERM (um ssh, por exemplo) sobreviveria ao git e ficaria
+# órfão. Por isso um vigia (bash) espera o timeout e, quando ele termina por
+# qualquer motivo, manda KILL ao grupo inteiro (o que sobrou morre).
 # Se este script morrer (até por kill -9), o setpriv --pdeathsig manda TERM ao
-# timeout, que repassa o sinal ao grupo dele (git e filhos) e, passados 10 s,
-# manda KILL: nenhuma busca fica órfã. Sem setpriv (util-linux), roda sem isso.
+# vigia, que o repassa ao timeout (TERM ao grupo; KILL 10 s depois se o git
+# ignorar) e, assim que o timeout termina, manda KILL ao grupo.
+# Garantido: nenhum processo que continue no grupo do git sobra depois que o
+# timeout termina. Não garantido: um descendente que saia do grupo (setsid,
+# como um ssh ControlPersist que vira daemon) escapa; sem setpriv (util-linux),
+# o vigia não fica sabendo da morte deste script e a busca segue até o prazo
+# (NUMIH_FETCH_TIMEOUT), quando o grupo é derrubado do mesmo jeito; e um
+# kill -9 no próprio vigia deixa o timeout sozinho, que ainda respeita o prazo.
 PRAZO_PAI=()
 if setpriv --pdeathsig TERM true 2>/dev/null; then PRAZO_PAI=(setpriv --pdeathsig TERM); fi
-com_prazo() { "${PRAZO_PAI[@]}" timeout --kill-after=10 "$FETCH_TIMEOUT" "$@" 9>&-; }
+# O vigia confere que o pai ainda é este script (se ele morreu antes de o
+# setpriv armar o aviso, não há aviso: o vigia desiste sem buscar) e arma o
+# trap antes de iniciar o timeout (um TERM nesse meio-tempo não deixa nada).
+com_prazo() {
+  "${PRAZO_PAI[@]}" bash -c '
+    pai="$1" t="$2"; shift 2
+    p= sinal=
+    trap "sinal=1; [ -z \"\$p\" ] || kill -TERM \"\$p\" 2>/dev/null" TERM HUP INT
+    [ "$PPID" = "$pai" ] || exit 143
+    [ -z "$sinal" ] || exit 143
+    timeout --kill-after=10 "$t" "$@" & p=$!
+    [ -z "$sinal" ] || kill -TERM "$p" 2>/dev/null
+    rc=0
+    while :; do
+      wait "$p" && rc=0 || rc=$?
+      kill -0 "$p" 2>/dev/null || break
+    done
+    kill -KILL -- "-$p" 2>/dev/null
+    exit "$rc"
+  ' numih-sync-prazo "$BASHPID" "$FETCH_TIMEOUT" "$@" 9>&-
+}
 
 # 0 se o caminho, com os links simbólicos resolvidos, fica dentro de $NUMIH_HOME.
 dentro_de_casa() {
@@ -359,7 +409,7 @@ case "$cmd" in
     ;;
   mod)
     nome="${1:-}"
-    if ! [[ "$nome" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then erro "nome de repositório inválido: '$nome'"; exit 1; fi
+    if ! [[ "$nome" =~ $RE_NOME ]]; then erro "nome de repositório inválido: '$nome'"; exit 1; fi
     # O GitHub não aceita nome terminado em .git (o sufixo é da URL, não do nome).
     if [[ "${nome,,}" == *.git ]]; then erro "nome de repositório inválido: '$nome' (sem o sufixo .git)"; exit 1; fi
     sincronizar_um "$nome" "$NUMIH_HOME/mod/$nome"

@@ -73,6 +73,9 @@ espera_rc() { # descrição, rc esperado, comando...
 tem() { # descrição, padrão (grep -E) que precisa estar em $T/out
   if grep -qE -- "$2" "$T/out"; then ok "$1"; else falha "$1 (sem «$2»)"; cat "$T/out"; fi
 }
+so_erros_proprios() { # descrição: toda linha da saída é um erro do numih-sync
+  if [ -s "$T/out" ] && ! grep -qv '^numih-sync: erro: ' "$T/out"; then ok "$1"; else falha "$1"; cat "$T/out"; fi
+}
 recusado_pelo_gancho() { # descrição, comando...
   local d="$1"; shift
   local rc=0; "$@" >"$T/out" 2>&1 || rc=$?
@@ -300,6 +303,61 @@ espera_rc "recusa NUMIH_HOME = HOME" 1 env HOME="$T/falso" NUMIH_HOME="$T/falso"
 espera_rc "recusa NUMIH_HOME = HOME com barra no fim" 1 env HOME="$T/falso" NUMIH_HOME="$T/falso/" "$SYNC" check
 espera_rc "recusa NUMIH_HOME acima do HOME" 1 env HOME="$T/falso" NUMIH_HOME="$T" "$SYNC" check
 tem "motivo: NUMIH_HOME acima do HOME" "NUMIH_HOME não pode ser o HOME, um diretório acima dele nem a raiz"
+# HOME que é link simbólico para o diretório real: o NUMIH_HOME apontado para o
+# alvo (ou acima dele) é o próprio HOME e também é recusado.
+mkdir -p "$T/hl/real"; ln -s real "$T/hl/link"
+for v in "$T/hl/real" "$T/hl/real/" "$T/hl"; do
+  espera_rc "recusa NUMIH_HOME=$v com HOME link para o alvo" 1 env HOME="$T/hl/link" NUMIH_HOME="$v" "$SYNC" check --no-fetch
+  tem "motivo: HOME link ($v)" "NUMIH_HOME não pode ser o HOME, um diretório acima dele nem a raiz"
+done
+[ ! -e "$T/hl/real/.lock" ] && [ ! -e "$T/hl/.lock" ] && [ -z "$(ls -A "$T/hl/real")" ] \
+  && ok "nada criado no alvo do HOME link" || { falha "criou algo no alvo do HOME link"; ls -la "$T/hl" "$T/hl/real"; }
+# HOME ausente, vazio ou relativo: mensagem própria e saída 1 em todo
+# subcomando, sem erro cru do bash nem do realpath, e nada criado.
+mkdir -p "$T/cwd-h"
+for c in sync check "check --no-fetch" map "mod lib" install; do
+  # shellcheck disable=SC2086
+  espera_rc "HOME ausente ($c)" 1 env -C "$T/cwd-h" -u HOME NUMIH_HOME="$T/home-semhome" "$SYNC" $c
+  tem "motivo: HOME ausente ($c)" "^numih-sync: erro: HOME não está definido; defina-o"
+  so_erros_proprios "HOME ausente ($c): só erro próprio"
+  # shellcheck disable=SC2086
+  espera_rc "HOME e NUMIH_HOME ausentes ($c)" 1 env -C "$T/cwd-h" -u HOME -u NUMIH_HOME "$SYNC" $c
+  so_erros_proprios "HOME e NUMIH_HOME ausentes ($c): só erro próprio"
+  # shellcheck disable=SC2086
+  espera_rc "HOME vazio ($c)" 1 env -C "$T/cwd-h" HOME= NUMIH_HOME="$T/home-semhome" "$SYNC" $c
+  tem "motivo: HOME vazio ($c)" "^numih-sync: erro: HOME está vazio; defina-o"
+  so_erros_proprios "HOME vazio ($c): só erro próprio"
+  # shellcheck disable=SC2086
+  espera_rc "HOME vazio, NUMIH_HOME ausente ($c)" 1 env -C "$T/cwd-h" -u NUMIH_HOME HOME= "$SYNC" $c
+  so_erros_proprios "HOME vazio, NUMIH_HOME ausente ($c): só erro próprio"
+  # shellcheck disable=SC2086
+  espera_rc "HOME relativo ($c)" 1 env -C "$T/cwd-h" HOME=rel NUMIH_HOME="$T/home-semhome" "$SYNC" $c
+  tem "motivo: HOME relativo ($c)" "^numih-sync: erro: HOME precisa ser absoluto: rel$"
+  so_erros_proprios "HOME relativo ($c): só erro próprio"
+done
+[ ! -e "$T/home-semhome" ] && [ -z "$(ls -A "$T/cwd-h")" ] && ok "nada criado sem HOME" || { falha "criou algo sem HOME"; ls -la "$T/cwd-h"; }
+espera_rc "ajuda funciona sem HOME" 0 env -u HOME -u NUMIH_HOME "$SYNC" help
+# Nomes e números só em ASCII, qualquer que seja o locale: com en_US.UTF-8,
+# [A-Za-z0-9] casaria é e ñ, e [0-9] casaria ٣ (algarismo arábico-índico).
+LOCALES=(C)
+if locale -a 2>/dev/null | grep -qixE 'en_US\.utf-?8'; then LOCALES+=(en_US.UTF-8)
+else echo "AVISO- sem o locale en_US.UTF-8 nesta máquina: as guardas ASCII só foram testadas com LC_ALL=C"; fi
+for L in "${LOCALES[@]}"; do
+  for n in é ñ "aé" "libñ" ٣ "a٣"; do
+    espera_rc "mod recusa '$n' (LC_ALL=$L)" 1 env LC_ALL="$L" "$SYNC" mod "$n"
+    tem "motivo: nome não ASCII '$n' (LC_ALL=$L)" "^numih-sync: erro: nome de repositório inválido: '$n'$"
+    grep -q "clonando" "$T/out" && falha "tentou clonar '$n' (LC_ALL=$L)" || ok "não tentou clonar '$n' (LC_ALL=$L)"
+  done
+  espera_rc "mod aceita nome ASCII (LC_ALL=$L)" 0 env LC_ALL="$L" "$SYNC" mod lib
+  espera_rc "recusa NUMIH_LOCK_WAIT=٣ (LC_ALL=$L)" 1 env LC_ALL="$L" NUMIH_HOME="$T/home-lw" NUMIH_LOCK_WAIT=٣ "$SYNC" check --no-fetch
+  tem "motivo: NUMIH_LOCK_WAIT=٣ (LC_ALL=$L)" "NUMIH_LOCK_WAIT precisa ser um número de segundos: ٣"
+  for v in ٣ "1٣"; do
+    espera_rc "recusa NUMIH_FETCH_TIMEOUT=$v (LC_ALL=$L)" 1 env LC_ALL="$L" NUMIH_HOME="$T/home-lw" NUMIH_FETCH_TIMEOUT="$v" "$SYNC" check --no-fetch
+    tem "motivo: NUMIH_FETCH_TIMEOUT=$v (LC_ALL=$L)" "NUMIH_FETCH_TIMEOUT precisa ser um número de segundos maior que zero: $v"
+  done
+done
+[ ! -e "$T/home-lw" ] && ok "nada criado com números não ASCII" || falha "criou o NUMIH_HOME com número não ASCII"
+for n in é ñ "aé" "libñ" ٣ "a٣"; do [ ! -e "$NUMIH_HOME/mod/$n" ] || falha "criou mod/$n"; done
 # A raiz em qualquer grafia, em todos os comandos que escrevem ou buscam.
 for v in / // /. /.. /// /./ /../..; do
   for c in check sync map "mod lib" install; do
@@ -309,9 +367,6 @@ for v in / // /. /.. /// /./ /../..; do
   done
 done
 # NUMIH_HOME que é arquivo, .lock que é diretório ou fifo: mensagem própria, rc 1.
-so_erros_proprios() { # descrição: toda linha da saída é um erro do numih-sync
-  if [ -s "$T/out" ] && ! grep -qv '^numih-sync: erro: ' "$T/out"; then ok "$1"; else falha "$1"; cat "$T/out"; fi
-}
 printf 'arquivo\n' > "$T/home-arquivo"
 espera_rc "recusa NUMIH_HOME que é arquivo" 1 env NUMIH_HOME="$T/home-arquivo" "$SYNC" check --no-fetch
 tem "motivo: NUMIH_HOME não é diretório" "NUMIH_HOME existe e não é diretório: $T/home-arquivo"
@@ -512,8 +567,9 @@ tem "motivo: clone passou do prazo" "lib: o clone passou de 2 s \(NUMIH_FETCH_TI
 [ ! -e "$T/home-pendura/mod/lib" ] && ok "clone interrompido não deixa cópia pela metade" || falha "sobrou cópia pela metade"
 sleep 0.3
 ps -eo args= | grep -qx "sleep $PENDURA" && falha "sobrou processo do remoto pendurado" || ok "nenhum processo do remoto pendurado sobrou"
-# kill -9 no numih-sync no meio da busca: a busca não fica órfã (o timeout
-# recebe TERM pelo setpriv --pdeathsig e derruba o grupo do git).
+# kill -9 no numih-sync no meio da busca: a busca não fica órfã (o vigia do
+# com_prazo recebe TERM pelo setpriv --pdeathsig, repassa ao timeout e, quando
+# ele termina, derruba o grupo do git com KILL).
 PENDURA2="$((PENDURA + 1))"; SOBRAS+=("$PENDURA" "$PENDURA2")
 git config --global url."ext::sh -c sleep% $PENDURA2 ".insteadOf "pendura2://x/"
 git -C "$NUMIH_HOME/cursor" config remote.origin.url "pendura2://x/cursor.git"
@@ -539,6 +595,33 @@ tem "motivo: prazo (TERM ignorado)" "cursor: a busca na origin .* passou de 1 s 
 sleep 0.3
 vivo "$PENDURA3" && falha "sobrou a busca que ignora TERM" || ok "nada sobrou da busca que ignora TERM"
 mata_sobras "$PENDURA3"
+# Filho do git que ignora TERM (ssh falso: trap '' TERM e um sleep filho). O
+# git respeita o TERM e morre; o timeout termina junto, e só o vigia do
+# com_prazo derruba o que sobrou no grupo (o ssh e o sleep).
+PENDURA4="$((PENDURA + 3))"; SOBRAS+=("$PENDURA4")
+printf '#!/bin/sh\ntrap "" TERM\nsleep %s\nexit 1\n' "$PENDURA4" > "$T/ssh-ignora-term"; chmod 0755 "$T/ssh-ignora-term"
+ssh_vivo() { ps -eo args= | grep -q "^/bin/sh $T/ssh-ignora-term "; }
+git -C "$NUMIH_HOME/cursor" config remote.origin.url "ssh://x/cursor.git"
+# (a) prazo estourado, sem kill -9
+espera_rc "busca com ssh que ignora TERM: prazo" 1 timeout 45 env GIT_SSH_COMMAND="$T/ssh-ignora-term" NUMIH_REMOTE_BASE=ssh://x NUMIH_FETCH_TIMEOUT=1 "$SYNC" check
+tem "motivo: prazo (ssh que ignora TERM)" "cursor: a busca na origin \(ssh://x/cursor\.git\) passou de 1 s"
+for _ in $(seq 20); do vivo "$PENDURA4" || ssh_vivo || break; sleep 0.05; done
+vivo "$PENDURA4" || ssh_vivo && falha "prazo: o ssh que ignora TERM (ou o sleep dele) ficou órfão" || ok "prazo: nada sobrou do ssh que ignora TERM"
+mata_sobras "$PENDURA4"
+# (b) kill -9 no numih-sync no meio da busca
+GIT_SSH_COMMAND="$T/ssh-ignora-term" NUMIH_REMOTE_BASE=ssh://x NUMIH_FETCH_TIMEOUT=200 "$SYNC" check >"$T/out-k9b" 2>&1 & pk9=$!
+for _ in $(seq 200); do vivo "$PENDURA4" && break; sleep 0.05; done
+if vivo "$PENDURA4" && ssh_vivo; then
+  kill -9 "$pk9"; wait "$pk9" 2>/dev/null || true
+  ini=$SECONDS
+  # O --kill-after (10 s) não ajuda aqui (o git já morreu); 15 s de folga.
+  for _ in $(seq 300); do vivo "$PENDURA4" || ssh_vivo || break; sleep 0.05; done
+  dur=$((SECONDS - ini))
+  if vivo "$PENDURA4" || ssh_vivo; then falha "kill -9 com ssh que ignora TERM: o ssh (ou o sleep dele) ficou órfão"
+  else ok "kill -9 com ssh que ignora TERM: nada sobrou ($dur s)"; fi
+else falha "a busca com ssh que ignora TERM (kill -9) não começou"; cat "$T/out-k9b"; kill -9 "$pk9" 2>/dev/null || true; fi
+mata_sobras "$PENDURA4"
+git -C "$NUMIH_HOME/cursor" config remote.origin.url "$T/remotos/cursor.git"
 
 # Avanço rápido estrito: mesmo que a checagem de ancestral fosse burlada
 # (shim finge que passou), o merge --ff-only recusa e não deixa merge pela metade.
