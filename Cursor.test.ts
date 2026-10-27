@@ -5,7 +5,7 @@
 // and exit 1), told what to do by its message (MODE:...). Runs with the
 // sandbox off, and in bwrap where it is installed.
 
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -227,6 +227,44 @@ describe("Cursor.variant", () => {
     expect(Cursor.failure("Cannot use this model: x").off).toBe(true);
     const busy = Cursor.failure("Error: [internal_error] boom");
     expect([busy.stop, busy.off]).toEqual(["down", false]);
+  });
+
+  // what failure() logs to the operator (console.error), each line it printed
+  const logged = (f: () => void): string[] => {
+    const spy = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      f();
+      return spy.mock.calls.map((c) => c.map(String).join(" "));
+    } finally {
+      spy.mockRestore();
+    }
+  };
+
+  test("a failure with no words: said in Portuguese, logged as one", () => {
+    let got: ReturnType<typeof Cursor.failure> | undefined;
+    const lines = logged(() => (got = Cursor.failure("  \x1b[0m \n")));
+    expect(got!.stop).toBe("down");
+    expect(lines).toEqual(["cursor: falha: o Cursor CLI terminou sem responder"]);
+  });
+
+  test("a failure's log clipped never between a surrogate pair's halves: an emoji at char 300", () => {
+    const odd = (s: string) => /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(s);
+    // the emoji's high half is code unit 300 (index 299): a plain slice(0, 300) would split it
+    const why = "x".repeat(299) + "😀" + "y".repeat(50);
+    expect(odd(why.slice(0, 300))).toBe(true);
+    const lines = logged(() => Cursor.failure(why));
+    expect(lines.length).toBe(1);
+    expect(odd(lines[0])).toBe(false);
+    expect(lines[0]).toBe("cursor: falha: " + "x".repeat(299) + "…");
+    // an emoji wholly inside the limit kept
+    const kept = logged(() => Cursor.failure("x".repeat(298) + "😀" + "y".repeat(50)));
+    expect(kept[0]).toBe("cursor: falha: " + "x".repeat(298) + "😀…");
+  });
+
+  test("the operator's log lines in Portuguese: a silence stopped, what the runs spent", () => {
+    expect(Cursor.quiet("claude-opus-5-5-high", 240e3)).toBe("cursor: claude-opus-5-5-high: nenhuma palavra em 240 s: interrompido");
+    expect(Cursor.spent("m", { runs: 1, input: 3, output: 5, read: 7, write: 11 })).toBe("cursor: m: 1 execução; tokens: entrada 3, saída 5, cache lido 7, cache gravado 11");
+    expect(Cursor.spent("m", { runs: 2, input: 6, output: 10, read: 14, write: 22 })).toBe("cursor: m: 2 execuções; tokens: entrada 6, saída 10, cache lido 14, cache gravado 22");
   });
 });
 

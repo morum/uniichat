@@ -466,7 +466,7 @@ export namespace Cursor {
         return null;
       }
       const r = Agent.limit_off(Agent.fail(why, []), until, ask).refusal!;
-      console.error(ask.model + ": " + r.why.slice(0, 300));
+      console.error("cursor: " + ask.model + ": " + Cursor.clip(r.why, 300));
       return { text: r.say, stop: "down", off: true, acted: acted.v, until: r.until };
     };
     const room = Cursor.room(ask);
@@ -514,7 +514,7 @@ export namespace Cursor {
           continue;
         }
         if (got.stall === true) {
-          console.error("cursor: " + model + ": no word in " + Math.round((said ? SETUP.idle : SETUP.first) / 1e3) + " s: stopped");
+          console.error(Cursor.quiet(model, said ? SETUP.idle : SETUP.first));
           if (!said && tries === 0) {
             tries += 1;
             session = null;
@@ -562,7 +562,7 @@ export namespace Cursor {
     } finally {
       fs.rmSync(room.dir, { recursive: true, force: true });
       if (used.runs > 0) {
-        console.error("cursor: " + model + ": " + used.runs + " run" + (used.runs > 1 ? "s" : "") + ", tokens in " + used.input + ", out " + used.output + ", cache read " + used.read + ", written " + used.write);
+        console.error(Cursor.spent(model, used));
       }
       // what it had shown, logged marked as cut short (as Agent.fail
       // marks it, but in pt-BR)
@@ -623,8 +623,19 @@ export namespace Cursor {
     if (LIMITED.test(why)) {
       return { limit: { until: Cursor.reset(why), text: why } };
     }
-    console.error("cursor: " + why.slice(0, 300));
+    console.error("cursor: falha: " + Cursor.clip(why, 300));
     return { text: BUSY, stop: "down", off: OFF.test(why) };
+  }
+
+  // the operator's log line for a run stopped after `ms` of silence
+  export function quiet(model: string, ms: number): string {
+    return "cursor: " + model + ": nenhuma palavra em " + Math.round(ms / 1e3) + " s: interrompido";
+  }
+
+  // the operator's log line for what a call's runs spent
+  export function spent(model: string, used: { runs: number; input: number; output: number; read: number; write: number }): string {
+    const runs = used.runs + (used.runs > 1 ? " execuções" : " execução");
+    return "cursor: " + model + ": " + runs + "; tokens: entrada " + used.input + ", saída " + used.output + ", cache lido " + used.read + ", cache gravado " + used.write;
   }
 
   // a turn: the CLI run, told `text` on its stdin, its stream read to its
