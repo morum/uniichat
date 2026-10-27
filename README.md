@@ -121,7 +121,8 @@ Features
   mandar.", "Só mesclo o #24 e o #25 quando você mandar.", "Quando você
   mandar, só mesclo.") asks nothing; "Falta só o CI e mesclo quando você
   mandar." asks. In doubt it asks: "Mesclo apenas o #24 e o #25 quando
-  você mandar." and "Só abro o PR e mesclo quando você mandar." ask.
+  você mandar.", "Só abro o PR e mesclo quando você mandar." and "Só
+  mesclo e depois reinicio quando você mandar." ask.
   Terminal: `/mesa [projeto]`, `/p`, `/p P7`, `/ok P7 [opção] [campo=valor…] [comentário]`,
   `/ok!`, `/rascunho P7 campo=valor`, `/conversa P7 mensagem`,
   `/descartar`, `/reabrir`, `/avisar`.

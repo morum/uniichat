@@ -552,6 +552,56 @@ test("\"ou\", \"pois\", \"senão\" and \"porque\" end the clause of \"só\": the
   expect(asks("Espero só o CI quando você mandar.")).toEqual([]);
 });
 
+test("\"que\" of each time ends no clause of \"só\": the rule holds; a request after \"e\" still asks (P112, verif4 B1: ASK_ONLY_STOP)", () => {
+  for (const x of [
+    "Só mesclo sempre que o CI passar quando você mandar.",
+    "Só mesclo até que o CI passe quando você mandar.",
+    "Só reinicio desde que não haja agente quando você mandar.",
+    "Só mesclo logo que o CI passar quando você mandar.",
+    "Só mesclo assim que o CI passar quando você mandar.",
+  ]) {
+    expect(asks(x)).toEqual([]);
+  }
+  // the time's clause goes on, and a request after "e" still asks
+  expect(asks("Só mesclo até que o CI passe e reinicio quando você mandar.")).toEqual(["Só mesclo até que o CI passe e reinicio quando você mandar."]);
+  // a known limit, in the README: a verb with a word before it, after
+  // "e", asks
+  expect(asks("Só mesclo e depois reinicio quando você mandar.")).toEqual(["Só mesclo e depois reinicio quando você mandar."]);
+});
+
+test("\"um\", \"uma\", \"uns\" and \"umas\" start a noun on the list of \"só\": the rule holds; not led by \"só\", it asks (P112, verif4 B1: ASK_ONLY_NOUN)", () => {
+  for (const x of [
+    "Só abro um PR e uma tag quando você mandar.",
+    "Só abro uma tag e um PR quando você mandar.",
+    "Só abro uns PRs e umas tags quando você mandar.",
+    "Só abro umas tags e uns PRs quando você mandar.",
+    "Só mesclo o #24, um hotfix e uma tag quando você mandar.",
+    "Só mesclo o #24, uma tag e um hotfix quando você mandar.",
+    // "os", "as", and a number with no article
+    "Só abro os PRs e as tags quando você mandar.",
+    "Só abro as tags e os PRs quando você mandar.",
+    "Só mesclo o #24 e 25 quando você mandar.",
+  ]) {
+    expect(asks(x)).toEqual([]);
+  }
+  for (const x of [
+    "Falta um PR e uma tag quando você mandar.",
+    "Revisei uma tag e um PR quando você mandar.",
+    // a verb that starts as an article ("aplico", "o…") is no noun: a
+    // list that mixes nouns and verbs asks
+    "Só mesclo o #24 e aplico quando você mandar.",
+  ]) {
+    expect(asks(x)).toEqual([x]);
+  }
+});
+
+test("\"só\" after a request put first counts only just after it: in a later clause it asks (P112, verif4 B1: ASK_ONLY_AFTER)", () => {
+  expect(asks("Quando você mandar, mesclo; falta só o CI.")).toEqual(["Quando você mandar, mesclo; falta só o CI."]);
+  expect(asks("Quando você mandar, mesclo e falta só o CI.")).toEqual(["Quando você mandar, mesclo e falta só o CI."]);
+  // just after it: the rule
+  expect(asks("Quando você mandar, só mesclo.")).toEqual([]);
+});
+
 test("the origin is quoted whole up to 160 characters, cut after, with no blank before the ellipsis; one block too long is cut at DETAIL (P112, verif3 B2: M16, M17, M31, M32)", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ask-"));
   const s = T.tasks_load(dir);
