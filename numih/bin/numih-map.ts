@@ -201,15 +201,25 @@ export function portaDevYaml(doc: any): number | null {
 // Texto que vem de fora (.gitmodules, catálogo de portas) entra no Markdown
 // escapado: | não quebra a tabela, ` não abre código, [ não abre link, < não
 // abre HTML, \ não escapa o que vem depois; quebra de linha vira espaço.
+// Objeto ou lista (um ports.yaml hostil pode pôr um mapa onde se espera um
+// número) sai como JSON compacto, determinístico, nunca como [object Object].
+export function bruto(s: unknown): string {
+  if (s == null) return ""
+  if (typeof s === "object") {
+    try { return JSON.stringify(s) ?? "(valor não serializável)" } catch { return "(valor não serializável)" }
+  }
+  return String(s)
+}
+
 export function texto(s: unknown): string {
-  return String(s ?? "").replace(/[\r\n]+/g, " ").replace(/[\\`|<\[\]]/g, c => "\\" + c)
+  return bruto(s).replace(/[\r\n]+/g, " ").replace(/[\\`|<\[\]]/g, c => "\\" + c)
 }
 
 // Trecho de código com conteúdo de fora: o delimitador tem mais crases que a
 // maior sequência de crases do conteúdo. Dentro de tabela, | vira \| (o GFM
 // trata \| na divisão das células, inclusive dentro de código).
 export function codigo(s: unknown, tabela = false): string {
-  let c = String(s ?? "").replace(/[\r\n]+/g, " ")
+  let c = bruto(s).replace(/[\r\n]+/g, " ")
   if (tabela) c = c.replace(/\|/g, "\\|")
   const maior = Math.max(0, ...(c.match(/`+/g) ?? []).map(r => r.length))
   const d = "`".repeat(maior + 1)

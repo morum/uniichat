@@ -338,4 +338,50 @@ describe("numih-map", () => {
       rmSync(t, { recursive: true, force: true })
     }
   })
+  test("codigo(): crase no fim do conteúdo ganha espaço e o trecho fecha", () => {
+    // Sem o espaço, a crase final do conteúdo gruda no delimitador de fechamento
+    // (``a```): a sequência de 3 crases não fecha o trecho aberto com 2.
+    expect(codigo("a`")).toBe("`` a` ``")
+    expect(codigo("a``")).toBe("``` a`` ```")
+    expect(codigo("a`", true)).toBe("`` a` ``")
+    // Fechado: o delimitador de abertura reaparece no fim, isolado por espaço, e
+    // nenhuma sequência de crases do conteúdo tem o mesmo tamanho dele.
+    for (const s of ["a`", "`a", "`", "a`b`", "x``"]) {
+      const r = codigo(s)
+      const d = r.match(/^`+/)![0]
+      expect(r.endsWith(d)).toBe(true)
+      const meio = r.slice(d.length, r.length - d.length)
+      expect(meio.startsWith("`")).toBe(false)
+      expect(meio.endsWith("`")).toBe(false)
+      expect((meio.match(/`+/g) ?? []).every(q => q.length !== d.length)).toBe(true)
+    }
+  })
+  test("objeto ou lista vindos do ports.yaml saem como JSON compacto, nunca [object Object]", () => {
+    expect(texto({ a: 1, "b|c": [2] })).toBe('{"a":1,"b\\|c":\\[2\\]}')
+    expect(texto([1, "x"])).toBe('\\[1,"x"\\]')
+    expect(texto({ a: { b: "<x>" } })).toBe('{"a":{"b":"\\<x>"}}')
+    expect(codigo({ a: "`" })).toBe('``{"a":"`"}``')
+    expect(texto(null)).toBe("")
+    expect(texto(undefined)).toBe("")
+    expect(texto(0)).toBe("0")
+    // Ciclo (não vem de YAML, mas não pode derrubar o mapa): texto fixo.
+    const ciclo: any = {}; ciclo.eu = ciclo
+    expect(texto(ciclo)).toBe("(valor não serializável)")
+    expect(texto(ciclo)).not.toContain("object Object")
+    const md = renderMarkdown({
+      workspace_sha: "s", fonte_portas: "f", total_gitlinks: 1, total_secoes_gitmodules: 1, secoes_descartadas: [],
+      modulos: [{
+        nome: "x", caminho: "modules/x", categoria: "módulo", camadas: ["backend"],
+        repo: { owner: "Numih", nome: "x", url: "https://github.com/Numih/x" }, gitlink: "a".repeat(40),
+        portas: [{ nome: "x", secao: "modules", portas: { idx: { n: 7 }, be_local: { porta: 8100, alt: [1, 2] } } }],
+      }],
+      portas_sem_submodulo: [{ nome: "z", secao: "tools", portas: { local_dev: { a: "b" } } }],
+      avisos: [],
+    })
+    expect(md).not.toContain("object Object")
+    const linha = md.split("\n").find(l => l.includes("modules/x"))!
+    expect(linha).toContain('| {"n":7} |')
+    expect(linha).toContain('x: be_local {"porta":8100,"alt":\\[1,2\\]}')
+    expect(md).toContain('- `z` (tools): local_dev {"a":"b"}\n')
+  })
 })
