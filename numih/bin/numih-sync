@@ -28,7 +28,9 @@
 # diretório acima dele nem ~/repository); NUMIH_REMOTE_BASE (padrão
 # https://github.com/Numih — só para testes com remotos locais);
 # NUMIH_LOCK_WAIT (segundos de espera pela trava; padrão 120);
-# NUMIH_FETCH_TIMEOUT (segundos máximos de cada clone ou busca; padrão 300).
+# NUMIH_FETCH_TIMEOUT (segundos máximos de cada clone ou busca, inteiro maior
+# que zero; padrão 300). Um clone que falha (por prazo, KILL ou erro) tem a
+# pasta que ele criou apagada.
 # Clone e busca nunca pedem senha: GIT_TERMINAL_PROMPT=0, GIT_ASKPASS=false e,
 # sem ssh configurado pelo usuário, ssh com BatchMode=yes.
 
@@ -61,7 +63,7 @@ esac
 ASCII_ALNUM='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
 RE_NOME="^[$ASCII_ALNUM][$ASCII_ALNUM._-]*\$"
 RE_NUM='^[0123456789]+$'
-RE_NUM_POS='^[123456789][0123456789]*$'
+RE_NUM_POS='^[0123456789]*[123456789][0123456789]*$'
 
 # HOME: as guardas abaixo protegem o HOME e ~/repository; sem ele (ou com ele
 # vazio ou relativo) não há o que proteger com segurança. Vale para todos os
@@ -98,7 +100,7 @@ case "$HOME_REAL/" in
   "$NUMIH_HOME"/*) erro "NUMIH_HOME não pode ser o HOME, um diretório acima dele nem a raiz ($NUMIH_HOME)"; exit 1 ;;
 esac
 if ! [[ "$LOCK_WAIT" =~ $RE_NUM ]]; then erro "NUMIH_LOCK_WAIT precisa ser um número de segundos: $LOCK_WAIT"; exit 1; fi
-if ! [[ "$FETCH_TIMEOUT" =~ $RE_NUM_POS ]]; then erro "NUMIH_FETCH_TIMEOUT precisa ser um número de segundos maior que zero: $FETCH_TIMEOUT"; exit 1; fi
+if ! [[ "$FETCH_TIMEOUT" =~ $RE_NUM_POS ]]; then erro "NUMIH_FETCH_TIMEOUT precisa ser um número inteiro de segundos maior que zero: $FETCH_TIMEOUT"; exit 1; fi
 
 # Rede sem interação: nada de pedir usuário/senha no terminal ou por janela.
 export GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=false SSH_ASKPASS_REQUIRE=never
@@ -240,16 +242,40 @@ exit 1'
   done
 }
 
+# Apaga a pasta de um clone que falhou, só se ela ainda for a que o clonar
+# criou (mesmo dispositivo e inode, diretório de verdade, dentro de casa).
+# Uma pasta trocada durante o clone (ou que já existia) nunca é apagada.
+apagar_parcial() {
+  local nome="$1" dir="$2" id="$3"
+  if [ ! -e "$dir" ] && [ ! -L "$dir" ]; then return 0; fi
+  if [ -L "$dir" ] || [ ! -d "$dir" ] || [ "$(stat -c '%d:%i' -- "$dir" 2>/dev/null)" != "$id" ] || ! dentro_de_casa "$dir"; then
+    erro "$nome: $dir não é mais a pasta criada por este clone; não a apago"; return 0
+  fi
+  if rm -rf -- "$dir"; then
+    info "$nome: pasta parcial do clone removida ($dir)"
+  else
+    erro "$nome: não consegui apagar a pasta parcial do clone ($dir); apague-a antes de rodar de novo"
+  fi
+}
+
 clonar() {
   local nome="$1" dir="$2"
+  # A pasta é criada aqui, sem -p (falha se já existir), e o git clona nela
+  # vazia. Se o clone falhar, inclusive morto por KILL (que o git não tem como
+  # limpar), só essa pasta é apagada; uma pasta preexistente nunca.
+  if ! mkdir -- "$dir" 2>/dev/null; then
+    erro "$nome: não consegui criar $dir (já existe ou sem permissão); não clono nele"; return 1
+  fi
+  local id; id="$(stat -c '%d:%i' -- "$dir")" || return 1
   info "clonando $REMOTE_BASE/$nome em $dir"
   local rc=0
   com_prazo git "${GIT_OPTS[@]}" clone --quiet --filter=blob:none --no-recurse-submodules --single-branch \
     --branch "$BRANCH" "$REMOTE_BASE/$nome.git" "$dir" || rc=$?
+  if [ "$rc" = 0 ]; then return 0; fi
   if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then
     erro "$nome: o clone passou de $FETCH_TIMEOUT s (NUMIH_FETCH_TIMEOUT) e foi interrompido"
   fi
-  # Clone que falha ou é interrompido (TERM): o próprio git apaga o diretório.
+  apagar_parcial "$nome" "$dir" "$id"
   return "$rc"
 }
 
@@ -412,6 +438,8 @@ case "$cmd" in
     if ! [[ "$nome" =~ $RE_NOME ]]; then erro "nome de repositório inválido: '$nome'"; exit 1; fi
     # O GitHub não aceita nome terminado em .git (o sufixo é da URL, não do nome).
     if [[ "${nome,,}" == *.git ]]; then erro "nome de repositório inválido: '$nome' (sem o sufixo .git)"; exit 1; fi
+    # Nem terminado em ponto ('a.git.', 'x.'): o mesmo critério do numih-map.
+    if [[ "$nome" == *. ]]; then erro "nome de repositório inválido: '$nome' (não pode terminar em ponto)"; exit 1; fi
     sincronizar_um "$nome" "$NUMIH_HOME/mod/$nome"
     ;;
   install)

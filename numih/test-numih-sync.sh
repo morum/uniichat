@@ -53,6 +53,18 @@ if [ -n "\${NUMIH_TESTE_IGNORA_TERM-}" ]; then
   # só a busca da cópia cursor (as outras seguem normais)
   case " \$* " in *"/cursor -c "*" fetch "*) trap '' TERM; exec sleep "\$NUMIH_TESTE_IGNORA_TERM" ;; esac
 fi
+if [ -n "\${NUMIH_TESTE_CLONE_PARCIAL-}\${NUMIH_TESTE_CLONE_TROCA-}" ]; then
+  case " \$* " in *" clone "*)
+    for a in "\$@"; do dest="\$a"; done
+    if [ -n "\${NUMIH_TESTE_CLONE_TROCA-}" ]; then
+      # a pasta do clone é trocada por outra (de outro dono) e o clone falha
+      mv "\$dest" "\$dest.movido" && mkdir "\$dest" && echo alheio > "\$dest/alheio"; exit 1
+    fi
+    # clone pela metade que ignora TERM: só o KILL do --kill-after o derruba
+    mkdir -p "\$dest/.git/objects" && echo parcial > "\$dest/.git/parcial"
+    trap '' TERM; exec sleep "\$NUMIH_TESTE_CLONE_PARCIAL" ;;
+  esac
+fi
 if [ -n "\${NUMIH_TESTE_FINGE_ANCESTRAL-}" ]; then
   case " \$* " in *" merge-base --is-ancestor "*) exit 0 ;; esac
 fi
@@ -91,7 +103,7 @@ copia_limpa_na_main() { # descrição, dir
 
 # Remotos: workspace (com um submódulo registrado) e cursor
 mkdir -p "$T/remotos"
-for r in cursor lib workspace .oculto ffteste x.git; do
+for r in cursor lib workspace .oculto ffteste x.git a.git. ab12 9z; do
   git init -q --bare "$T/remotos/$r.git"
   git clone -q "$T/remotos/$r.git" "$T/src-$r" 2>/dev/null
   echo "$r" > "$T/src-$r/README.md"
@@ -272,6 +284,41 @@ for n in x.git X.GIT; do
   tem "motivo: sufixo .git ($n)" "nome de repositório inválido: '$n' \(sem o sufixo \.git\)"
 done
 [ ! -e "$NUMIH_HOME/mod/x.git" ] && ok "nada clonado para x.git" || falha "clonou x.git"
+# a.git. existe no remoto (a.git..git) e clonaria sem a regra do ponto final.
+espera_rc "mod recusa nome terminado em ponto (a.git.)" 1 "$SYNC" mod "a.git."
+tem "motivo: termina em ponto (a.git.)" "^numih-sync: erro: nome de repositório inválido: 'a\.git\.' \(não pode terminar em ponto\)$"
+[ ! -e "$NUMIH_HOME/mod/a.git." ] && ok "nada clonado para a.git." || falha "clonou a.git."
+
+# Clone que falha: a pasta que ele criou é apagada, mesmo quando o git morre
+# por KILL (que ele não tem como limpar). Antes, mod/<nome> ficava pela metade
+# e todo sync e check seguintes falhavam. O git falso cria a pasta pela metade e
+# ignora TERM: o --kill-after manda KILL 10 s depois do prazo (rc 137).
+PARCIAL="$((300000 + RANDOM * 7 + $$ % 7))"; SOBRAS+=("$PARCIAL")
+HP="$T/home-parcial"
+ini=$SECONDS
+espera_rc "clone morto por KILL falha" 1 timeout 45 env PATH="$T/shim:$PATH" NUMIH_TESTE_CLONE_PARCIAL="$PARCIAL" NUMIH_HOME="$HP" NUMIH_FETCH_TIMEOUT=1 "$SYNC" mod lib
+dur=$((SECONDS - ini))
+tem "motivo: prazo no clone morto por KILL (rc 137)" "^numih-sync: erro: lib: o clone passou de 1 s \(NUMIH_FETCH_TIMEOUT\) e foi interrompido$"
+tem "informa a pasta parcial removida" "^lib: pasta parcial do clone removida \($HP/mod/lib\)$"
+[ "$dur" -lt 30 ] && ok "clone que ignora TERM foi morto pelo KILL ($dur s)" || falha "clone que ignora TERM levou $dur s"
+[ ! -e "$HP/mod/lib" ] && ok "clone morto por KILL não deixa mod/lib pela metade" || { falha "sobrou mod/lib pela metade"; ls -la "$HP/mod/lib"; }
+sleep 0.3
+ps -eo args= | grep -qx "sleep $PARCIAL" && falha "sobrou o clone que ignora TERM" || ok "nada sobrou do clone que ignora TERM"
+espera_rc "mod lib volta a clonar depois do KILL" 0 env NUMIH_HOME="$HP" "$SYNC" mod lib
+[ -d "$HP/mod/lib/.git" ] && ok "cópia refeita depois do KILL" || falha "cópia não refeita depois do KILL"
+# Clone que falha por erro comum (repositório inexistente): pasta apagada.
+espera_rc "mod de repositório inexistente falha" 1 env NUMIH_HOME="$HP" "$SYNC" mod naoexiste
+[ ! -e "$HP/mod/naoexiste" ] && ok "clone com erro não deixa pasta" || falha "sobrou mod/naoexiste"
+# Pasta trocada durante o clone: não é mais a criada por ele e nunca é apagada.
+HX="$T/home-troca"
+espera_rc "clone que falha com a pasta trocada" 1 env PATH="$T/shim:$PATH" NUMIH_TESTE_CLONE_TROCA=1 NUMIH_HOME="$HX" "$SYNC" mod lib
+tem "motivo: pasta trocada" "^numih-sync: erro: lib: $HX/mod/lib não é mais a pasta criada por este clone; não a apago$"
+[ "$(cat "$HX/mod/lib/alheio" 2>/dev/null)" = alheio ] && ok "pasta trocada intacta" || falha "apagou a pasta trocada"
+# Pasta preexistente: o sync não clona nela nem a apaga.
+mkdir -p "$T/home-pre/mod/lib"; echo meu > "$T/home-pre/mod/lib/meu.txt"
+espera_rc "mod com pasta preexistente falha" 1 env NUMIH_HOME="$T/home-pre" "$SYNC" mod lib
+grep -q clonando "$T/out" && falha "tentou clonar na pasta preexistente" || ok "não clona na pasta preexistente"
+[ "$(cat "$T/home-pre/mod/lib/meu.txt" 2>/dev/null)" = meu ] && ok "pasta preexistente intacta" || falha "mexeu na pasta preexistente"
 espera_rc "sync inclui mod/" 0 "$SYNC" sync
 grep -q "^lib: em dia" "$T/out" && ok "mod/lib sincronizado no sync" || falha "mod/lib fora do sync"
 
@@ -291,10 +338,12 @@ grep -q "NUMIH_HOME precisa ser absoluto: rel" "$T/out" && ok "motivo: NUMIH_HOM
 espera_rc "recusa NUMIH_LOCK_WAIT inválido" 1 env NUMIH_HOME="$T/home-lw" NUMIH_LOCK_WAIT=x "$SYNC" check --no-fetch
 tem "motivo: NUMIH_LOCK_WAIT não numérico" "NUMIH_LOCK_WAIT precisa ser um número de segundos: x"
 [ ! -e "$T/home-lw" ] && ok "nada criado com NUMIH_LOCK_WAIT inválido" || falha "criou o NUMIH_HOME com NUMIH_LOCK_WAIT inválido"
-for v in x 0 -5; do
+for v in x 0 00 -5 1.5; do
   espera_rc "recusa NUMIH_FETCH_TIMEOUT=$v" 1 env NUMIH_HOME="$T/home-lw" NUMIH_FETCH_TIMEOUT="$v" "$SYNC" check --no-fetch
-  tem "motivo: NUMIH_FETCH_TIMEOUT=$v" "NUMIH_FETCH_TIMEOUT precisa ser um número de segundos maior que zero: $v"
+  tem "motivo: NUMIH_FETCH_TIMEOUT=$v" "NUMIH_FETCH_TIMEOUT precisa ser um número inteiro de segundos maior que zero: $v$"
 done
+# Inteiro maior que zero, com zero à esquerda: aceito (é o que a mensagem diz).
+espera_rc "aceita NUMIH_FETCH_TIMEOUT=05" 0 env NUMIH_FETCH_TIMEOUT=05 "$SYNC" mod lib
 [ ! -e "$T/home-lw" ] && ok "nada criado com NUMIH_FETCH_TIMEOUT inválido" || falha "criou o NUMIH_HOME com NUMIH_FETCH_TIMEOUT inválido"
 # HOME falso dentro de $T: a guarda nunca é exercitada contra o HOME real.
 mkdir -p "$T/falso"
@@ -349,14 +398,20 @@ for L in "${LOCALES[@]}"; do
     grep -q "clonando" "$T/out" && falha "tentou clonar '$n' (LC_ALL=$L)" || ok "não tentou clonar '$n' (LC_ALL=$L)"
   done
   espera_rc "mod aceita nome ASCII (LC_ALL=$L)" 0 env LC_ALL="$L" "$SYNC" mod lib
+  # dígitos ASCII no meio e no início do nome
+  for n in ab12 9z; do
+    espera_rc "mod aceita nome com dígitos '$n' (LC_ALL=$L)" 0 env LC_ALL="$L" "$SYNC" mod "$n"
+    [ -d "$NUMIH_HOME/mod/$n/.git" ] && ok "cópia de '$n' criada (LC_ALL=$L)" || falha "cópia de '$n' ausente (LC_ALL=$L)"
+  done
   espera_rc "recusa NUMIH_LOCK_WAIT=٣ (LC_ALL=$L)" 1 env LC_ALL="$L" NUMIH_HOME="$T/home-lw" NUMIH_LOCK_WAIT=٣ "$SYNC" check --no-fetch
   tem "motivo: NUMIH_LOCK_WAIT=٣ (LC_ALL=$L)" "NUMIH_LOCK_WAIT precisa ser um número de segundos: ٣"
   for v in ٣ "1٣"; do
     espera_rc "recusa NUMIH_FETCH_TIMEOUT=$v (LC_ALL=$L)" 1 env LC_ALL="$L" NUMIH_HOME="$T/home-lw" NUMIH_FETCH_TIMEOUT="$v" "$SYNC" check --no-fetch
-    tem "motivo: NUMIH_FETCH_TIMEOUT=$v (LC_ALL=$L)" "NUMIH_FETCH_TIMEOUT precisa ser um número de segundos maior que zero: $v"
+    tem "motivo: NUMIH_FETCH_TIMEOUT=$v (LC_ALL=$L)" "NUMIH_FETCH_TIMEOUT precisa ser um número inteiro de segundos maior que zero: $v"
   done
 done
 [ ! -e "$T/home-lw" ] && ok "nada criado com números não ASCII" || falha "criou o NUMIH_HOME com número não ASCII"
+rm -rf "$NUMIH_HOME/mod/ab12" "$NUMIH_HOME/mod/9z"
 for n in é ñ "aé" "libñ" ٣ "a٣"; do [ ! -e "$NUMIH_HOME/mod/$n" ] || falha "criou mod/$n"; done
 # A raiz em qualquer grafia, em todos os comandos que escrevem ou buscam.
 for v in / // /. /.. /// /./ /../..; do
@@ -622,6 +677,71 @@ if vivo "$PENDURA4" && ssh_vivo; then
 else falha "a busca com ssh que ignora TERM (kill -9) não começou"; cat "$T/out-k9b"; kill -9 "$pk9" 2>/dev/null || true; fi
 mata_sobras "$PENDURA4"
 git -C "$NUMIH_HOME/cursor" config remote.origin.url "$T/remotos/cursor.git"
+
+# O vigia do com_prazo, isolado: o trecho entre «bash -c '» e «' numih-sync-prazo»
+# é extraído do próprio script (as mutações valem aqui) e rodado com os
+# argumentos que o com_prazo passa: pai, prazo, comando.
+VIGIA="$(awk '/^  "\$\{PRAZO_PAI\[@\]\}" bash -c '"'"'$/ { f = 1; next } f && /^  '"'"' numih-sync-prazo / { exit } f' "$SYNC")"
+case "$VIGIA" in *"timeout --kill-after"*) ok "trecho do vigia extraído do script" ;; *) falha "não consegui extrair o trecho do vigia" ;; esac
+EU="$BASHPID"   # pai certo: este shell, que roda o vigia como filho direto
+V="$T/vigia"; mkdir -p "$V"
+# Injeção de falha determinística: um BASH_ENV com trap DEBUG registra cada
+# comando do vigia e, uma única vez, manda TERM ao próprio vigia logo antes do
+# comando cujo texto começa por $NUMIH_TESTE_GATILHO (o trap TERM do vigia já
+# está armado nesse ponto).
+cat > "$T/vigia-env.sh" <<'ENV'
+trap 'case $BASH_COMMAND in "$NUMIH_TESTE_GATILHO"*) if [ -z "${_numih_disparou-}" ]; then _numih_disparou=1; printf "gatilho: %s\n" "$BASH_COMMAND" >> "$NUMIH_TESTE_LOG"; kill -TERM $$; fi ;; esac; printf "%s\n" "$BASH_COMMAND" >> "$NUMIH_TESTE_LOG"' DEBUG
+ENV
+# (M01) pai errado (o numih-sync morreu antes de o setpriv armar o aviso): sai
+#       143 sem executar o comando. Controle: com o pai certo, executa.
+rm -f "$V"/*
+espera_rc "vigia com o pai certo executa o comando" 0 bash -c "$VIGIA" numih-sync-prazo "$EU" 30 sh -c ": > '$V/rodou'"
+[ -e "$V/rodou" ] && ok "vigia com o pai certo: comando executado" || falha "vigia com o pai certo não executou o comando"
+rm -f "$V"/*
+espera_rc "vigia com o pai errado sai 143" 143 bash -c "$VIGIA" numih-sync-prazo 1 30 sh -c ": > '$V/rodou'"
+[ ! -e "$V/rodou" ] && ok "vigia com o pai errado não executa o comando" || falha "vigia com o pai errado executou o comando"
+# (M02) TERM depois de armado o trap e antes do timeout: sai 143 e o timeout
+#       nem começa.
+rm -f "$V"/*
+espera_rc "vigia: TERM antes do timeout sai 143" 143 env BASH_ENV="$T/vigia-env.sh" NUMIH_TESTE_LOG="$V/log" NUMIH_TESTE_GATILHO='[ "$PPID"' \
+  bash -c "$VIGIA" numih-sync-prazo "$EU" 30 sh -c ": > '$V/rodou'"
+grep -q '^gatilho: \[ "\$PPID" = "\$pai" \]$' "$V/log" && ok "vigia: o TERM chegou antes do timeout" || { falha "vigia: o gatilho antes do timeout não disparou"; cat "$V/log"; }
+grep -q '^timeout ' "$V/log" && falha "vigia: iniciou o timeout depois do TERM" || ok "vigia: não inicia o timeout depois do TERM"
+[ ! -e "$V/rodou" ] && ok "vigia: TERM antes do timeout, comando não executado" || falha "vigia: executou o comando depois do TERM"
+# (M03) TERM logo depois de iniciado o timeout, antes de o vigia saber o PID
+#       dele (o trap ainda não tem a quem repassar): o vigia repassa o TERM
+#       assim que sabe, e o comando não vai até o fim.
+rm -f "$V"/*
+ini=$SECONDS
+espera_rc "vigia: TERM logo depois do timeout sai 143" 143 env BASH_ENV="$T/vigia-env.sh" NUMIH_TESTE_LOG="$V/log" NUMIH_TESTE_GATILHO='p=$!' \
+  bash -c "$VIGIA" numih-sync-prazo "$EU" 30 sh -c "sleep 3; : > '$V/rodou'"
+dur=$((SECONDS - ini))
+grep -q '^gatilho: p=\$!$' "$V/log" && ok "vigia: o TERM chegou antes de p=\$!" || { falha "vigia: o gatilho p=\$! não disparou"; cat "$V/log"; }
+[ "$dur" -lt 3 ] && [ ! -e "$V/rodou" ] && ok "vigia: o TERM foi repassado ao timeout ($dur s)" || falha "vigia: o comando foi até o fim depois do TERM ($dur s)"
+# (M04) TERM no meio: o vigia repassa ao timeout, que repassa ao git, e espera
+#       o timeout terminar antes do KILL ao grupo, dando ao git o tempo de se
+#       limpar. O git falso trata TERM e só grava o marcador de limpeza 1 s
+#       depois; um KILL logo após o TERM o impediria.
+LIMPA="$((PENDURA + 4))"; SOBRAS+=("$LIMPA")
+cat > "$T/git-limpa" <<GIT
+#!/bin/sh
+trap 'sleep 1; : > "$V/limpo"; exit 143' TERM
+: > "$V/comecou"
+sleep $LIMPA &
+wait
+GIT
+chmod 0755 "$T/git-limpa"
+rm -f "$V"/*
+bash -c "$VIGIA" numih-sync-prazo "$EU" 30 "$T/git-limpa" & pv=$!
+for _ in $(seq 200); do [ -e "$V/comecou" ] && break; sleep 0.05; done
+if [ -e "$V/comecou" ]; then
+  kill -TERM "$pv"; rcv=0; wait "$pv" || rcv=$?
+  [ "$rcv" = 143 ] && ok "vigia: TERM no meio sai 143" || falha "vigia: TERM no meio saiu $rcv"
+  [ -e "$V/limpo" ] && ok "vigia: o git terminou a própria limpeza antes do KILL ao grupo" || falha "vigia: KILL ao grupo antes de o git se limpar"
+else falha "o git falso do vigia não começou"; kill -9 "$pv" 2>/dev/null || true; fi
+sleep 0.3
+ps -eo args= | grep -qx "sleep $LIMPA" && falha "vigia: sobrou processo do git falso" || ok "vigia: nada sobrou do git falso"
+mata_sobras "$LIMPA"
 
 # Avanço rápido estrito: mesmo que a checagem de ancestral fosse burlada
 # (shim finge que passou), o merge --ff-only recusa e não deixa merge pela metade.
