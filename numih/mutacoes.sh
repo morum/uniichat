@@ -16,10 +16,13 @@ trap 'rm -rf "$BASE"' EXIT
 
 # ID <TAB> arquivo (relativo a numih/) <TAB> teste (sync|map) <TAB> trecho original <TAB> trecho mutado
 # \n nos trechos vira quebra de linha.
-MUTACOES='A1	bin/numih-sync	sync	if [ "$NUMIH_HOME" = / ]; then	if false; then
+# A tabela vem de um heredoc literal (sem expansão), então os trechos podem
+# ter aspas simples.
+MUTACOES="$(cat <<'TABELA'
+A1	bin/numih-sync	sync	if [ "$NUMIH_HOME" = / ]; then	if false; then
 S22	bin/numih-sync	sync	"$NUMIH_HOME"/?*) return 0	"$NUMIH_HOME"?*) return 0
 S28	bin/numih-sync	sync	if ! mv -fT "$tmp" "$alvo"	if ! mv -f "$tmp" "$alvo"
-S29	bin/numih-sync	sync	timeout --kill-after=10 "$FETCH_TIMEOUT"	timeout "$FETCH_TIMEOUT"
+S29	bin/numih-sync	sync	timeout --kill-after=10 "$t"	timeout "$t"
 S33	bin/numih-sync	sync	--no-recurse-submodules --single-branch	--single-branch
 S34	bin/numih-sync	sync	fetch --quiet --no-recurse-submodules origin	fetch --quiet origin
 S37	bin/numih-sync	sync	  mkdir -p "$hooks" || return 1\n	
@@ -34,7 +37,22 @@ B2b	bin/numih-map.ts	map	be_local ${texto(portaMod.portas.be_local)}	be_local ${
 B2i	bin/numih-map.ts	map	(idx ${texto(portaMod.portas.idx)})	(idx ${portaMod.portas.idx})
 B6u	bin/numih-map.ts	map	!segmentoSeguro(owner) || !nomeDeRepoSeguro(nome)	!segmentoSeguro(owner) || !segmentoSeguro(nome)
 B6f	bin/numih-map.ts	map	!segmentoSeguro(partes[0]) || !nomeDeRepoSeguro(partes[1])	!segmentoSeguro(partes[0]) || !segmentoSeguro(partes[1])
-B6n	bin/numih-map.ts	map	&& !s.toLowerCase().endsWith(".git")	&& !s.endsWith(".git")'
+B6n	bin/numih-map.ts	map	&& !s.toLowerCase().endsWith(".git")	&& !s.endsWith(".git")
+V01	bin/numih-sync	sync	HOME_REAL="$(realpath -m "$HOME")"	HOME_REAL="$HOME"
+B1k	bin/numih-sync	sync	    kill -KILL -- "-$p" 2>/dev/null\n	
+B1t	bin/numih-sync	sync	 TERM HUP INT	 HUP INT
+B4n	bin/numih-sync	sync	RE_NOME="^[$ASCII_ALNUM][$ASCII_ALNUM._-]*\$"	RE_NOME='^[A-Za-z0-9][A-Za-z0-9._-]*$'
+B4d	bin/numih-sync	sync	RE_NUM='^[0123456789]+$'	RE_NUM='^[0-9]+$'
+B4p	bin/numih-sync	sync	RE_NUM_POS='^[123456789][0123456789]*$'	RE_NUM_POS='^[1-9][0-9]*$'
+B5u	bin/numih-sync	sync	if [ -z "${HOME+x}" ]; then	if false; then
+B5v	bin/numih-sync	sync	if [ -z "$HOME" ]; then	if false; then
+B5r	bin/numih-sync	sync	case "$HOME" in	case "/$HOME" in
+T07	bin/numih-map.ts	map	c.startsWith("`") || c.endsWith("`")	c.startsWith("`")
+B6o	bin/numih-map.ts	map	if (typeof s === "object") {	if (false) {
+B6c	bin/numih-map.ts	map	let c = bruto(s).replace	let c = String(s ?? "").replace
+B6t	bin/numih-map.ts	map	return bruto(s).replace(	return String(s ?? "").replace(
+TABELA
+)"
 
 um() { # linha da tabela
   local id arq teste de para

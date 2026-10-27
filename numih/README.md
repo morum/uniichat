@@ -53,8 +53,10 @@ proteção e os ganchos, reaplicados antes da busca (HEAD e arquivos intactos).
 
 Recusa, sem criar nada, `NUMIH_HOME` relativo, a raiz em qualquer grafia (`/`,
 `//`, `/.`, `/..`), igual ao `HOME` ou acima dele, ou dentro de `~/repository`
-(com links simbólicos resolvidos: se `~/repository` for link para outro
-diretório, o alvo também é recusado). `NUMIH_HOME` que exista e não seja
+(com links simbólicos resolvidos: se o `HOME` ou `~/repository` for link para
+outro diretório, o alvo também é recusado). Sem `HOME`, com `HOME` vazio ou
+relativo, todo subcomando (menos a ajuda) para com mensagem própria e saída 1,
+antes de criar, travar ou buscar qualquer coisa. `NUMIH_HOME` que exista e não seja
 diretório, e `.lock` que não seja arquivo comum (diretório, fifo), também são
 recusados com mensagem própria e saída 1.
 
@@ -74,10 +76,27 @@ Clone e busca nunca pedem senha (`GIT_TERMINAL_PROMPT=0`, `GIT_ASKPASS=false`;
 sem `GIT_SSH_COMMAND`, `GIT_SSH` ou `core.sshCommand` do usuário, o ssh roda
 com `BatchMode=yes`) e têm prazo: `NUMIH_FETCH_TIMEOUT` segundos (padrão 300).
 Estourado o prazo, o git é interrompido (TERM e, 10 s depois, KILL), a
-mensagem diz isso e a saída é 1. Se o próprio `numih-sync` morrer no meio
-(inclusive por `kill -9`), o `setpriv --pdeathsig` faz o `timeout` derrubar o
-git e os filhos dele; sem o `setpriv` (util-linux), a busca pode seguir órfã
-até o prazo.
+mensagem diz isso e a saída é 1.
+
+O que é garantido sobre processos que sobram: o git roda num grupo de
+processos próprio (o do `timeout`), e um vigia espera o `timeout` terminar e
+então manda KILL ao grupo inteiro. Assim, um filho do git que ignore TERM (um
+`ssh`, por exemplo) não sobra quando o git morre, nem no prazo nem por sinal.
+Se o próprio `numih-sync` morrer no meio (inclusive por `kill -9`), o
+`setpriv --pdeathsig` avisa o vigia com TERM; ele repassa o TERM ao grupo (com
+KILL 10 s depois, se o próprio git o ignorar) e derruba com KILL o que sobrar
+assim que o git terminar. O que **não** é garantido: um descendente que saia
+do grupo (`setsid`, como um `ssh` com `ControlPersist` que vira daemon) escapa;
+sem o `setpriv` (util-linux), o vigia não fica sabendo da morte do
+`numih-sync`, e a busca segue até o prazo, quando o grupo é derrubado do mesmo
+jeito; um `kill -9` no próprio vigia deixa o `timeout` sozinho, que ainda
+respeita o prazo, mas sem a limpeza final do grupo.
+
+Nomes de módulo (`mod <nome>`) e os números de `NUMIH_LOCK_WAIT` e
+`NUMIH_FETCH_TIMEOUT` são validados com listas ASCII explícitas, que não
+dependem do locale (com `en_US.UTF-8`, `[A-Za-z0-9]` casaria `é` e `ñ`, e
+`[0-9]` casaria `٣`).
+
 Todo git roda com a trava (fd 9) fechada e com `gc.autoDetach=false`, então
 nenhum processo deixado em segundo plano herda a trava.
 
@@ -106,9 +125,9 @@ Duas execuções simultâneas se serializam por uma trava (`flock` em
 ## Testes
 
 ```bash
-bash numih/test-numih-sync.sh   # 284 verificações com remotos git locais num tmp próprio
-bun test numih/                 # 11 testes do gerador do mapa (repositório git, fixtures, gh falso)
-bash numih/mutacoes.sh          # 19 mutações (IDs A1, S22…S44, B2…B6); todas precisam morrer
+bash numih/test-numih-sync.sh   # 426 verificações com remotos git locais num tmp próprio
+bun test numih/                 # 13 testes do gerador do mapa (repositório git, fixtures, gh falso)
+bash numih/mutacoes.sh          # 32 mutações (IDs A1, S22…S44, B1…B6, V01, T07); todas precisam morrer
 ```
 
 Algumas verificações são estruturais, porque o comportamento não muda sem a
@@ -127,7 +146,10 @@ O teste do `numih-sync` também usa um `git` falso no `PATH` (que registra o
 ambiente de cada chamada e se a trava fd 9 estava aberta) e um remoto que
 pendura (transporte `ext::` com `sleep`), para provar o prazo da busca e do
 clone, o KILL de uma busca que ignora TERM e que um `kill -9` no `numih-sync`
-não deixa a busca órfã. Cada gancho de recusa é exercitado pela sua operação (commit, merge,
+não deixa a busca órfã. Um `ssh` falso que ignora TERM (com um `sleep` filho)
+prova que nem ele nem o `sleep` sobram, no prazo e depois de `kill -9` no
+`numih-sync`. As guardas ASCII são testadas com `LC_ALL=C` e
+`LC_ALL=en_US.UTF-8` (se esse locale existir na máquina). Cada gancho de recusa é exercitado pela sua operação (commit, merge,
 rebase, `git am` e push com URL explícita).
 
 O cabeçalho do `MODULOS.md` conta os gitlinks reais da `main` do workspace
@@ -139,7 +161,10 @@ owner/nome inseguros) ficam fora do mapa e são listadas em
 Caminhos, nomes de porta e dependências vindos do `.gitmodules` e do catálogo
 entram no Markdown escapados (`|`, crase, `[`, `<`, `\` e quebras de linha),
 para não quebrar a tabela nem abrir código, link ou HTML; vale também para
-`be_local` e `idx` no aviso de divergência do `module.dev.yaml`.
+`be_local` e `idx` no aviso de divergência do `module.dev.yaml`. Um valor que
+seja objeto ou lista (onde se espera número) sai como JSON compacto, escapado
+do mesmo jeito, nunca como `[object Object]`; um valor que nem o JSON
+representa sai como «(valor não serializável)».
 
 O instantâneo `MODULOS.md`/`modulos.json` desta pasta foi regenerado sem rede, a
 partir do `modulos.json` anterior (só ganhou `secoes_descartadas` e a linha
