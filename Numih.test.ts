@@ -533,6 +533,32 @@ test("skills: in a frontmatter strict YAML refuses, a key is read only at the li
   ]);
 });
 
+test("skills: in a frontmatter strict YAML refuses, quotes that do not pair leave the skill out; a line under a key indented by a tab goes on its value; an empty value on the key's line is no key", () => {
+  const root = path.join(TMP, "limites");
+  const put = (dir: string, head: string) => {
+    fs.mkdirSync(path.join(root, dir), { recursive: true });
+    // the last line makes strict YAML refuse it all
+    fs.writeFileSync(path.join(root, dir, "SKILL.md"), "---\nname: " + dir + "\n" + head + "\nx: [quebrado\n---\n# corpo\n");
+  };
+  // a value opened by one quote and closed by the other can't be read
+  put("aspas-trocadas", "description: \"abre dupla: fecha simples'");
+  put("aspas-trocadas-2", "description: 'abre simples: fecha dupla\"");
+  // decision: a tab, as a space, indents a line under the key, so it goes
+  // on the plain value (strict YAML forbids tabs as indentation; this
+  // reader is lenient on purpose)
+  put("tab", "description: começa aqui: e\n\tcontinua com tab");
+  // decision: only spaces after "description:" is no key, as no space at
+  // all; the lines under it are passed over and the skill stays out
+  put("vazia", "description:   \n  linha de baixo: sim");
+  // control: the same values, written in a way it reads
+  put("controle", "description: \"pares: sim\"");
+  const got = Machine.skills(path.join(TMP, "ninguem"), path.join(TMP, "nenhum"), root);
+  expect(got.map((s) => [s.name, s.description])).toEqual([
+    ["controle", "pares: sim"],
+    ["tab", "começa aqui: e continua com tab"],
+  ]);
+});
+
 test("skills: a description is cut at 1024 characters", () => {
   const root = path.join(TMP, "longa");
   const long = "a".repeat(1023) + "bc" + "d".repeat(100);

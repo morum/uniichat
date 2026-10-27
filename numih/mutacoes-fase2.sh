@@ -85,6 +85,9 @@ S9	Machine.ts	if (kv === null) {\n      continue;\n    }	if (kv === null) {\n   
 S10	Machine.ts	/^([A-Za-z][\w-]*):	/^[ \t]*([A-Za-z][\w-]*):
 S11	Machine.ts	):[ \t]+(\S.*)$/.exec(lines[k])	):[ \t]*(\S.*)$/.exec(lines[k])
 S12	Machine.ts	skill_value(kv[2].trim(), under)	skill_value(kv[2], under)
+S13	Machine.ts	/^(["']).*\1$/.test(whole)	/^(["']).*["']$/.test(whole)
+S14	Machine.ts	):[ \t]+(\S.*)$/.exec(lines[k])	):[ \t]+(.*)$/.exec(lines[k])
+S15	Machine.ts	(/^[ \t]/.test(lines[k + 1])	(/^ /.test(lines[k + 1])
 TABELA
 )"
 
