@@ -78,6 +78,17 @@ com `BatchMode=yes`) e têm prazo: `NUMIH_FETCH_TIMEOUT` segundos (padrão 300).
 Estourado o prazo, o git é interrompido (TERM e, 10 s depois, KILL), a
 mensagem diz isso e a saída é 1.
 
+Um clone que falha (por prazo, por erro ou morto por KILL, que o git não tem
+como limpar) tem a pasta apagada, para que o `sync` e o `check` seguintes não
+fiquem presos numa cópia pela metade. Só a pasta criada por esse clone: o
+`numih-sync` a cria (sem `-p`, então falha se ela já existir), o git clona
+nela vazia e, antes de apagar, confere que ela ainda é o mesmo diretório
+(dispositivo e inode), não é link simbólico e fica dentro de `NUMIH_HOME`.
+Uma pasta preexistente nunca recebe o clone nem é apagada. Não coberto: se o
+próprio `numih-sync` morrer por `kill -9` no meio do clone, a pasta pela
+metade fica, e o `sync` e o `check` seguintes falham nela até ela ser apagada
+à mão.
+
 O que é garantido sobre processos que sobram: o git roda num grupo de
 processos próprio (o do `timeout`), e um vigia espera o `timeout` terminar e
 então manda KILL ao grupo inteiro. Assim, um filho do git que ignore TERM (um
@@ -95,7 +106,8 @@ respeita o prazo, mas sem a limpeza final do grupo.
 Nomes de módulo (`mod <nome>`) e os números de `NUMIH_LOCK_WAIT` e
 `NUMIH_FETCH_TIMEOUT` são validados com listas ASCII explícitas, que não
 dependem do locale (com `en_US.UTF-8`, `[A-Za-z0-9]` casaria `é` e `ñ`, e
-`[0-9]` casaria `٣`).
+`[0-9]` casaria `٣`). `NUMIH_FETCH_TIMEOUT` é um número inteiro de segundos
+maior que zero (zero à esquerda é aceito: `05`; `0`, `00` e `1.5`, não).
 
 Todo git roda com a trava (fd 9) fechada e com `gc.autoDetach=false`, então
 nenhum processo deixado em segundo plano herda a trava.
@@ -107,9 +119,11 @@ A busca não usa `--prune`: com um único refspec explícito
 `origin/main`: é uma segunda barreira (o teste a exercita fingindo que a
 primeira passou) e garante que nunca fica merge pela metade.
 
-`mod <nome>` recusa nome que comece com ponto ou termine em `.git` (o sufixo é
-da URL, não do nome); o `numih-map` também descarta URL cujo nome seja `.git`
-ou termine em `.git` depois de tirado o sufixo.
+`mod <nome>` recusa nome que comece com ponto, termine em `.git` (o sufixo é
+da URL, não do nome) ou termine em ponto (`a.git.`, `x.`); o `numih-map`
+também descarta URL cujo nome seja `.git`, termine em `.git` depois de tirado
+o sufixo ou termine em ponto. Dígitos ASCII são aceitos em qualquer posição
+(`ab12`, `9z`).
 
 `numih-sync help` (ou sem argumentos) mostra a ajuda sem guarda, trava nem
 escrita; comando desconhecido sai com 2.
@@ -125,9 +139,9 @@ Duas execuções simultâneas se serializam por uma trava (`flock` em
 ## Testes
 
 ```bash
-bash numih/test-numih-sync.sh   # 426 verificações com remotos git locais num tmp próprio
-bun test numih/                 # 13 testes do gerador do mapa (repositório git, fixtures, gh falso)
-bash numih/mutacoes.sh          # 32 mutações (IDs A1, S22…S44, B1…B6, V01, T07); todas precisam morrer
+bash numih/test-numih-sync.sh   # 473 verificações com remotos git locais num tmp próprio
+bun test numih/                 # 14 testes do gerador do mapa (repositório git, fixtures, gh falso)
+bash numih/mutacoes.sh          # 45 mutações (IDs A1, S22…S44, B1…B6, V01, T07, M01…M04, M11, M11b, M13, C5a/C5b, N1/N1m, F1/F2); todas precisam morrer
 ```
 
 Algumas verificações são estruturais, porque o comportamento não muda sem a
@@ -151,6 +165,20 @@ prova que nem ele nem o `sleep` sobram, no prazo e depois de `kill -9` no
 `numih-sync`. As guardas ASCII são testadas com `LC_ALL=C` e
 `LC_ALL=en_US.UTF-8` (se esse locale existir na máquina). Cada gancho de recusa é exercitado pela sua operação (commit, merge,
 rebase, `git am` e push com URL explícita).
+
+O git falso também simula um clone pela metade que ignora TERM (só o KILL do
+`--kill-after` o derruba, rc 137): o teste confere a mensagem de prazo, que a
+pasta parcial foi apagada e que o `mod` seguinte clona de novo; e um clone
+cuja pasta é trocada no meio (outro inode), que não pode ser apagada.
+
+O vigia do `com_prazo` é testado isolado: o trecho dele é extraído do próprio
+script (as mutações valem ali) e rodado com pai certo e errado (pai errado:
+sai 143 sem executar o comando). Para o TERM chegar num ponto exato, um
+`BASH_ENV` com `trap … DEBUG` manda TERM ao vigia uma única vez, logo antes de
+um comando escolhido: antes do `timeout` (sai 143 e o `timeout` nem começa) e
+logo depois dele, antes de `p=$!` (o vigia repassa o TERM assim que sabe o
+PID). Um git falso que trata TERM e só grava o marcador de limpeza 1 s depois
+prova que o vigia espera o `timeout` terminar antes do KILL ao grupo.
 
 O cabeçalho do `MODULOS.md` conta os gitlinks reais da `main` do workspace
 (81) e, à parte, as seções do `.gitmodules` (82): `libs/nusip` tem seção, mas

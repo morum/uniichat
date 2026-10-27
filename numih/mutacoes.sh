@@ -43,7 +43,7 @@ B1k	bin/numih-sync	sync	    kill -KILL -- "-$p" 2>/dev/null\n
 B1t	bin/numih-sync	sync	 TERM HUP INT	 HUP INT
 B4n	bin/numih-sync	sync	RE_NOME="^[$ASCII_ALNUM][$ASCII_ALNUM._-]*\$"	RE_NOME='^[A-Za-z0-9][A-Za-z0-9._-]*$'
 B4d	bin/numih-sync	sync	RE_NUM='^[0123456789]+$'	RE_NUM='^[0-9]+$'
-B4p	bin/numih-sync	sync	RE_NUM_POS='^[123456789][0123456789]*$'	RE_NUM_POS='^[1-9][0-9]*$'
+B4p	bin/numih-sync	sync	RE_NUM_POS='^[0123456789]*[123456789][0123456789]*$'	RE_NUM_POS='^[0-9]*[1-9][0-9]*$'
 B5u	bin/numih-sync	sync	if [ -z "${HOME+x}" ]; then	if false; then
 B5v	bin/numih-sync	sync	if [ -z "$HOME" ]; then	if false; then
 B5r	bin/numih-sync	sync	case "$HOME" in	case "/$HOME" in
@@ -51,6 +51,19 @@ T07	bin/numih-map.ts	map	c.startsWith("`") || c.endsWith("`")	c.startsWith("`")
 B6o	bin/numih-map.ts	map	if (typeof s === "object") {	if (false) {
 B6c	bin/numih-map.ts	map	let c = bruto(s).replace	let c = String(s ?? "").replace
 B6t	bin/numih-map.ts	map	return bruto(s).replace(	return String(s ?? "").replace(
+M01	bin/numih-sync	sync	    [ "$PPID" = "$pai" ] || exit 143\n	
+M02	bin/numih-sync	sync	    [ -z "$sinal" ] || exit 143\n	
+M03	bin/numih-sync	sync	    [ -z "$sinal" ] || kill -TERM "$p" 2>/dev/null\n	
+M04	bin/numih-sync	sync	kill -0 "$p" 2>/dev/null || break	break
+M11	bin/numih-sync	sync	if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then\n    erro "$nome: o clone	if [ "$rc" = 124 ]; then\n    erro "$nome: o clone
+M11b	bin/numih-sync	sync	if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then\n    erro "$nome: a busca	if [ "$rc" = 124 ]; then\n    erro "$nome: a busca
+M13	bin/numih-sync	sync	ASCII_ALNUM='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'	ASCII_ALNUM='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+C5a	bin/numih-sync	sync	  apagar_parcial "$nome" "$dir" "$id"\n	
+C5b	bin/numih-sync	sync	 || [ "$(stat -c '%d:%i' -- "$dir" 2>/dev/null)" != "$id" ]	
+N1	bin/numih-sync	sync	if [[ "$nome" == *. ]]; then	if false; then
+N1m	bin/numih-map.ts	map	 && !s.endsWith(".")	
+F1	bin/numih-sync	sync	RE_NUM_POS='^[0123456789]*[123456789][0123456789]*$'	RE_NUM_POS='^[123456789][0123456789]*$'
+F2	bin/numih-sync	sync	RE_NUM_POS='^[0123456789]*[123456789][0123456789]*$'	RE_NUM_POS='^[0123456789]+$'
 TABELA
 )"
 
