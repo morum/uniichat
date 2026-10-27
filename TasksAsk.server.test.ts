@@ -137,6 +137,11 @@ test("\"PR, merge e reinício só quando você mandar.\" (a rule of Unii's) make
   await turn("Só mesclo quando você mandar.");
   expect(chat.mem.count).toBe(count + 2);
   expect(asked()).toHaveLength(0);
+  // "só" in another clause, before "e": a request, so a task (verif2 B1)
+  await turn("Falta só o CI e mesclo quando você mandar.");
+  expect(asked()).toHaveLength(1);
+  expect(last().text).toStartWith("Pergunta sem pendência: o Unii perguntou “Falta só o CI e mesclo quando você mandar.”");
+  drop(asked()[0]!.id);
 });
 
 test("with a task of the user's made in the turn, or no question, nothing", async () => {
@@ -222,7 +227,11 @@ test("Chat.reply gives the last reply's whole text, its pages joined; Chat.reply
   const one = "O #24 está aprovado pelo verificador, sem ressalvas, e o CI ficou verde. ";
   const two = "Os testes de ponta a ponta passaram na porta 8851. Quer que eu mescle como admin agora?";
   const first = Chat.push(chat, null, "unii", one, [], true).id;
+  // the pages logged in different milliseconds: the date is the first's
+  // (verif2 B2)
+  await Bun.sleep(5);
   Chat.push(chat, null, "unii", two);
+  expect(Memory.message(chat.mem, first + 1)!.date).not.toBe(Memory.message(chat.mem, first)!.date);
   expect((one + two).length).toBeGreaterThan(80);
   expect(Chat.reply(chat, began)).toBe(one + two);
   expect(Chat.reply(chat)).toBe(one + two);

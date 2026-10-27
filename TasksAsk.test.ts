@@ -392,12 +392,14 @@ test("\"PR, merge e reinício só quando você mandar.\" is a rule of Unii's, no
   expect(asks("Reinicio só quando você mandar?")).toEqual(["Reinicio só quando você mandar?"]);
 });
 
-test("\"só\" anywhere in the clause before \"quando você mandar\" makes it a rule of Unii's; in another clause, or inside a word, it doesn't (P112, B1)", () => {
+test("\"só\" in the simple clause of \"quando você mandar\" makes it a rule of Unii's; in another clause, or inside a word, it doesn't (P112, B1)", () => {
   // "só" first, or not just before "quando": the same rule
   expect(asks("Só mesclo quando você mandar.")).toEqual([]);
   expect(asks("Mesclo só quando você mandar.")).toEqual([]);
-  expect(asks("Só mesclo hoje e faço o deploy quando você mandar.")).toEqual([]);
   expect(asks("Apenas aplico em prod quando você mandar.")).toEqual([]);
+  // "e" starts another clause (verif2 B1): "só" before it limits the
+  // first verb, not the request
+  expect(asks("Só mesclo hoje e faço o deploy quando você mandar.")).toEqual(["Só mesclo hoje e faço o deploy quando você mandar."]);
   // in the clause before (a comma, a semicolon): it limits something else
   expect(asks("Falta só o CI; mesclo quando você mandar.")).toEqual(["Falta só o CI; mesclo quando você mandar."]);
   expect(asks("Só falta o CI, mesclo quando você mandar.")).toEqual(["Só falta o CI, mesclo quando você mandar."]);
@@ -407,6 +409,104 @@ test("\"só\" anywhere in the clause before \"quando você mandar\" makes it a r
   // only before "quando": "só" beside another request still asks
   expect(asks("Só falta a sua aprovação.")).toEqual(["Só falta a sua aprovação."]);
   expect(asks("Só mesclo se você quiser, posso mesclar agora.")).toEqual(["Só mesclo se você quiser, posso mesclar agora."]);
+});
+
+// The rule of "só" (P112, verif2 B1), the simplest coherent: "só",
+// "somente", "apenas", "unicamente" or "exclusivamente" makes "quando você
+// mandar" a rule of Unii's if it is in the same simple clause. A simple
+// clause ends at a stop (, ; :) or a conjunction (e, mas, ou, que,
+// porém, pois, porque, então, senão). Parentheses don't end it, and one
+// comma just before "quando" doesn't either. So "só" is just before the
+// verb ("Só mesclo"), just after it ("Mesclo só o #24"), or just before
+// "quando" ("Mesclo só quando"), with at most one comma between.
+test("\"só\" limits the request only in its own simple clause: after \"e\" or \"que\" it limits something else (P112, verif2 B1)", () => {
+  // a request: "só" in a clause before, ended by "e" or "que"
+  for (const x of [
+    "Falta só o CI e mesclo quando você mandar.",
+    "Tem só um PR e mesclo quando você mandar.",
+    "Mesclo apenas o #24 e o #25 quando você mandar.",
+    "Peço apenas que você mande quando puder.",
+    "Falta só o CI, mas mesclo quando você mandar.",
+    "Revisei só o #24 mas mesclo quando você mandar.",
+    "Falta só o CI: mesclo quando você mandar.",
+    // the last stop counts, not the first
+    "Revisei o #24, só falta o CI e mesclo quando você mandar.",
+  ]) {
+    expect(asks(x)).toEqual([x]);
+  }
+  // a rule: "só" in the request's own clause
+  for (const x of [
+    "Só mesclo quando você mandar.",
+    "Somente mesclo quando você mandar.",
+    "Apenas mesclo quando você mandar.",
+    "Mesclo só quando você mandar.",
+    "Mesclo, só quando você mandar.",
+    "Só mesclo, quando você mandar.",
+    "Mesclo só o #24 quando você mandar.",
+    "Mesclo (só o #24) quando você mandar.",
+    "Só mesclo (o #24) quando você mandar.",
+    "Mesclo unicamente quando você mandar.",
+    "Exclusivamente mesclo quando você mandar.",
+  ]) {
+    expect(asks(x)).toEqual([]);
+  }
+  // a comma gives the same as none
+  expect(asks("Mesclo, só quando você mandar.")).toEqual(asks("Mesclo só quando você mandar."));
+  expect(asks("Só mesclo, quando você mandar.")).toEqual(asks("Só mesclo quando você mandar."));
+  // the same in capitals, without accents, or with "!"
+  for (const x of ["SÓ MESCLO QUANDO VOCÊ MANDAR.", "Mesclo so quando voce mandar.", "So mesclo quando voce mandar.", "Mesclo só quando você mandar!"]) {
+    expect(asks(x)).toEqual([]);
+  }
+  expect(asks("FALTA SÓ O CI E MESCLO QUANDO VOCÊ MANDAR.")).toEqual(["FALTA SÓ O CI E MESCLO QUANDO VOCÊ MANDAR."]);
+  // a question still asks; so does "só" after the request
+  expect(asks("Mesclo só quando você mandar?")).toEqual(["Mesclo só quando você mandar?"]);
+  expect(asks("Quando você mandar, só então mesclo.")).toEqual(["Quando você mandar, só então mesclo."]);
+});
+
+test("\":\" ends a clause for a negation: \"Nada mudou: depende de ordem sua.\" asks (P112, verif2 B2)", () => {
+  expect(asks("Nada mudou: depende de ordem sua.")).toEqual(["Nada mudou: depende de ordem sua."]);
+  expect(asks("Nada mudou, depende de ordem sua.")).toEqual(["Nada mudou, depende de ordem sua."]);
+  expect(asks("Nada depende de ordem sua.")).toEqual([]);
+});
+
+test("the origin's time is the server's local date and minute, not UTC: a zone of 30 minutes, past midnight (P112, verif2 B2)", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ask-"));
+  const s = T.tasks_load(dir);
+  const TZ = process.env.TZ;
+  try {
+    // 18:45 UTC on 31/10 is 00:15 on 01/11 in Asia/Kolkata (UTC+5:30)
+    process.env.TZ = "Asia/Kolkata";
+    const a = T.task_asked(s, ["Aplico?"], Date.now(), { id: 3, text: "Aplico?", date: "2026-10-31T18:45:00.000Z" }) as T.Task;
+    expect(a.detail).toContain("Mensagem de origem: nº 3, resposta do Unii, em 01/11 às 00:15, que começa assim");
+    // 02:20 UTC on 01/01 is 22:50 on 31/12 in America/St_Johns (UTC-3:30)
+    process.env.TZ = "America/St_Johns";
+    const b = T.task_asked(s, ["Mesclo?"], Date.now(), { id: 4, text: "Mesclo?", date: "2027-01-01T02:20:00.000Z" }) as T.Task;
+    expect(b.detail).toContain("Mensagem de origem: nº 4, resposta do Unii, em 31/12 às 22:50, que começa assim");
+  } finally {
+    if (TZ === undefined) {
+      delete process.env.TZ;
+    } else {
+      process.env.TZ = TZ;
+    }
+  }
+  T.tasks_forget();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("an open task of Unii's with a due not a date: a new question sets its due from now (P112, verif2 B2)", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ask-"));
+  const s = T.tasks_load(dir);
+  const now = Date.now();
+  const t = T.task_asked(s, ["Mesclo?"], now, { id: 1, text: "Mesclo?", date: null }) as T.Task;
+  t.next_due = "amanhã";
+  const later = now + 60e3;
+  const u = T.task_asked(s, ["Aplico?"], later, { id: 2, text: "Aplico?", date: null }) as T.Task;
+  expect(u.id).toBe(t.id);
+  expect(Date.parse(u.next_due!)).toBe(later + 4 * 3600e3);
+  expect(u.moved).toBe(new Date(later).toISOString());
+  expect(u.ready).toBe(new Date(later).toISOString());
+  T.tasks_forget();
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test("a new question doesn't restart the 4 h of an open task of Unii's: its due, when it moved, and so its lateness stay (P112)", () => {
@@ -423,6 +523,9 @@ test("a new question doesn't restart the 4 h of an open task of Unii's: its due,
   expect(u.detail).toContain("• “Aplico?”");
   expect(u.next_due).toBe(t.next_due);
   expect(u.moved).toBe(t.moved);
+  // when it became ready stays too (verif2 B2)
+  expect(t.ready).toBe(new Date(now).toISOString());
+  expect(u.ready).toBe(t.ready);
   expect(u.changed).toBe(new Date(later).toISOString());
   expect(Deps.overdue_ms(s.tasks, u, later)).toBe(3600e3);
   expect(T.tasks_load(dir).tasks.find((x) => x.id === t.id)!.next_due).toBe(t.next_due);
