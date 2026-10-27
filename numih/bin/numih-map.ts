@@ -86,10 +86,27 @@ export function parseGitmodules(configList: string): Submodulo[] {
   return saida.sort((a, b) => a.caminho.localeCompare(b.caminho))
 }
 
+// Owner e nome entram no caminho do `gh api`: só [A-Za-z0-9._-], sem "." nem
+// ".." sozinhos. Qualquer outro caractere (?, #, %, /, espaço…) é recusado.
+const SEGMENTO = /^[A-Za-z0-9._-]+$/
+export function segmentoSeguro(s: string): boolean {
+  return SEGMENTO.test(s) && s !== "." && s !== ".."
+}
+
+// "owner/nome" vindo do GitHub (full_name); null se não for seguro.
+export function nomeCompletoSeguro(full: unknown): [string, string] | null {
+  if (typeof full !== "string") return null
+  const partes = full.split("/")
+  if (partes.length !== 2 || !partes.every(segmentoSeguro)) return null
+  return [partes[0], partes[1]]
+}
+
 export function repoDaUrl(url: string): RepoRef | null {
   const m = /^(?:git@github\.com:|ssh:\/\/git@github\.com\/|https:\/\/github\.com\/)([^/]+)\/([^/]+?)(?:\.git)?\/?$/.exec(url.trim())
   if (!m) return null
-  return { owner: m[1], nome: m[2], url: `https://github.com/${m[1]}/${m[2]}` }
+  const [, owner, nome] = m
+  if (!segmentoSeguro(owner) || !segmentoSeguro(nome)) return null
+  return { owner, nome, url: `https://github.com/${owner}/${nome}` }
 }
 
 export function categoria(caminho: string): Categoria {
@@ -182,7 +199,10 @@ export function renderMarkdown(mapa: any): string {
   l.push("")
   l.push(`- workspace: \`${mapa.workspace_sha}\` (Numih/workspace, main)`)
   l.push(`- catálogo de portas: \`${mapa.fonte_portas}\``)
-  l.push(`- submódulos: ${mapa.modulos.length}`)
+  const semGitlink = (mapa.modulos as Modulo[]).filter(m => !m.gitlink).map(m => `\`${m.caminho}\``)
+  l.push(`- submódulos (gitlinks na main do workspace): ${mapa.total_gitlinks}`)
+  l.push(`- seções no \`.gitmodules\`: ${mapa.total_secoes_gitmodules}` +
+    (semGitlink.length ? ` (sem gitlink: ${semGitlink.join(", ")})` : ""))
   l.push("")
   l.push("Portas: BE local (humano) = 8100+idx · BE Docker / agente = 9000+idx · FE Docker / agente = 10000+idx · FE local (humano) = 11000+idx (regra `20-ports-catalog`).")
   l.push("")
@@ -235,8 +255,15 @@ function run(cmd: string, args: string[], cwd?: string): { ok: boolean; out: str
   return { ok: r.status === 0, out: (r.stdout ?? "") + (r.status === 0 ? "" : r.stderr ?? "") }
 }
 
+// Última barreira antes do `gh api`: só os dois formatos que este gerador usa.
+const CAMINHO_GH = /^repos\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+(?:\/contents\/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*\?ref=[0-9a-f]{40})?$/
+export function caminhoGhSeguro(path: string): boolean {
+  return CAMINHO_GH.test(path) && !path.split(/[/?]/).some(p => p === "." || p === "..")
+}
+
 // Leitura do GitHub, só GET. Em --offline lê fixtures <dir>/<chave>.json.
-function ghGet(path: string, offline?: string): any | null {
+export function ghGet(path: string, offline?: string): any | null {
+  if (!caminhoGhSeguro(path)) throw new Error(`caminho do gh api recusado: ${JSON.stringify(path)}`)
   if (offline) {
     const f = join(offline, path.replace(/[^A-Za-z0-9._-]+/g, "_") + ".json")
     return existsSync(f) ? JSON.parse(readFileSync(f, "utf8")) : null
@@ -281,7 +308,11 @@ export function gerar(workspace: string, offline?: string) {
     if (!ref) { avisos.push(`URL não reconhecida em \`${s.caminho}\`: ${s.url}`); continue }
     const gl = gitlinks.get(s.caminho) ?? null
     if (!gl) avisos.push(`\`${s.caminho}\` está no .gitmodules mas não tem gitlink na main do workspace.`)
-    const meta = ghGet(`repos/${ref.owner}/${ref.nome}`, offline)
+    let meta = ghGet(`repos/${ref.owner}/${ref.nome}`, offline)
+    if (meta && !nomeCompletoSeguro(meta.full_name)) {
+      avisos.push(`\`${s.caminho}\`: nome devolvido pelo GitHub recusado (${JSON.stringify(meta.full_name)}).`)
+      meta = null
+    }
     const repo: Modulo["repo"] = { ...ref }
     if (meta) {
       repo.canonico = meta.full_name
@@ -325,9 +356,15 @@ export function gerar(workspace: string, offline?: string) {
     modulos.push(m)
   }
 
+  for (const caminho of gitlinks.keys()) {
+    if (!subs.some(s => s.caminho === caminho)) avisos.push(`\`${caminho}\` tem gitlink na main mas não está no .gitmodules.`)
+  }
+
   return {
     workspace_sha: wsSha,
     fonte_portas: fonte,
+    total_gitlinks: gitlinks.size,
+    total_secoes_gitmodules: subs.length,
     modulos,
     portas_sem_submodulo: sobras,
     avisos,
@@ -347,5 +384,5 @@ if (import.meta.main) {
   mkdirSync(out, { recursive: true })
   writeFileSync(join(out, "modulos.json"), JSON.stringify(mapa, null, 2) + "\n")
   writeFileSync(join(out, "MODULOS.md"), renderMarkdown(mapa))
-  console.log(`mapa: ${mapa.modulos.length} submódulos, ${mapa.portas_sem_submodulo.length} entradas de porta sem submódulo, ${mapa.avisos.length} avisos -> ${out}`)
+  console.log(`mapa: ${mapa.total_gitlinks} submódulos com gitlink (${mapa.total_secoes_gitmodules} seções no .gitmodules), ${mapa.portas_sem_submodulo.length} entradas de porta sem submódulo, ${mapa.avisos.length} avisos -> ${out}`)
 }

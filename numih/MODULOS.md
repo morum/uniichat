@@ -4,7 +4,8 @@
 
 - workspace: `762a30b8e6e57694732ed4910127d1ad9443558f` (Numih/workspace, main)
 - catálogo de portas: `Numih/devtools@0e28e46240a5:infra/ports.yaml`
-- submódulos: 82
+- submódulos (gitlinks na main do workspace): 81
+- seções no `.gitmodules`: 82 (sem gitlink: `libs/nusip`)
 
 Portas: BE local (humano) = 8100+idx · BE Docker / agente = 9000+idx · FE Docker / agente = 10000+idx · FE local (humano) = 11000+idx (regra `20-ports-catalog`).
 

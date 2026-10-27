@@ -1,6 +1,8 @@
 {
   "workspace_sha": "762a30b8e6e57694732ed4910127d1ad9443558f",
   "fonte_portas": "Numih/devtools@0e28e46240a5:infra/ports.yaml",
+  "total_gitlinks": 81,
+  "total_secoes_gitmodules": 82,
   "modulos": [
     {
       "nome": ".dotfiles",
