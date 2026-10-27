@@ -6,6 +6,9 @@
 # Nunca escreve fora de $NUMIH_HOME: os ganchos de recusa vão para o
 # .git/hooks de cada cópia, e o core.hooksPath é fixado no config LOCAL da
 # cópia (um core.hooksPath global do usuário nunca é usado nem alterado).
+# Cópia, diretório git, config, .git/hooks, trava e saídas que sejam links
+# simbólicos (ou que resolvam para fora de $NUMIH_HOME) são recusados antes de
+# qualquer busca ou escrita.
 # Nunca faz commit, push, reset ou force: só clone, fetch e avanço rápido
 # (fast-forward). Se uma cópia divergir da origin/main, tiver alteração local
 # ou a busca falhar, para com erro (saída não zero) e não toca nela.
@@ -23,7 +26,10 @@
 #
 # Variáveis: NUMIH_HOME (padrão ~/.unii/numih); NUMIH_REMOTE_BASE (padrão
 # https://github.com/Numih — só para testes com remotos locais);
-# NUMIH_LOCK_WAIT (segundos de espera pela trava; padrão 120).
+# NUMIH_LOCK_WAIT (segundos de espera pela trava; padrão 120);
+# NUMIH_FETCH_TIMEOUT (segundos máximos de cada clone ou busca; padrão 300).
+# Clone e busca nunca pedem senha: GIT_TERMINAL_PROMPT=0, GIT_ASKPASS=false e,
+# sem ssh configurado pelo usuário, ssh com BatchMode=yes.
 
 set -euo pipefail
 
@@ -32,47 +38,111 @@ REMOTE_BASE="${NUMIH_REMOTE_BASE:-https://github.com/Numih}"
 BRANCH=main
 BASE_REPOS=(workspace cursor)
 LOCK_WAIT="${NUMIH_LOCK_WAIT:-120}"
+FETCH_TIMEOUT="${NUMIH_FETCH_TIMEOUT:-300}"
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NO_PUSH_URL="no-push://copia-de-referencia-somente-leitura"
 
 erro() { printf 'numih-sync: erro: %s\n' "$*" >&2; }
 info() { printf '%s\n' "$*"; }
 
+# Ajuda (ou comando desconhecido): sai antes de qualquer guarda, trava ou
+# escrita. Mostra o comentário do topo, até a primeira linha sem #.
+case "${1:-}" in
+  sync|check|map|mod|install) ;;
+  *)
+    awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "${BASH_SOURCE[0]}"
+    case "${1:-}" in ""|help|-h|--help) exit 0 ;; *) exit 2 ;; esac
+    ;;
+esac
+
 # --- guarda de caminho: só opera dentro de $NUMIH_HOME, nunca em ~/repository
 case "$NUMIH_HOME" in
   /*) ;;
   *) erro "NUMIH_HOME precisa ser absoluto: $NUMIH_HOME"; exit 1 ;;
 esac
-# Resolve sem criar nada; as guardas vêm antes de qualquer escrita.
+# Resolve sem criar nada (realpath -m segue os links simbólicos que existem,
+# inclusive o último componente); as guardas vêm antes de qualquer escrita.
 NUMIH_HOME="$(realpath -m "$NUMIH_HOME")"
 HOME_REAL="$(realpath -m "$HOME")"
-REPO_ROOT="$HOME_REAL/repository"
+# ~/repository resolvido: se for link para outro diretório, o alvo também é
+# protegido (antes, $HOME/repository -> dados deixava passar dados/…).
+REPO_ROOT="$(realpath -m "$HOME_REAL/repository")"
 case "$NUMIH_HOME/" in
   "$REPO_ROOT"/*) erro "recuso operar dentro de $REPO_ROOT ($NUMIH_HOME)"; exit 1 ;;
 esac
-if [ "$NUMIH_HOME" = "$HOME_REAL" ] || [ "$NUMIH_HOME" = / ]; then
-  erro "NUMIH_HOME não pode ser o HOME nem a raiz"; exit 1
-fi
+case "$HOME_REAL/" in
+  "$NUMIH_HOME"/*) erro "NUMIH_HOME não pode ser o HOME, um diretório acima dele nem a raiz ($NUMIH_HOME)"; exit 1 ;;
+esac
 if ! [[ "$LOCK_WAIT" =~ ^[0-9]+$ ]]; then erro "NUMIH_LOCK_WAIT precisa ser um número de segundos: $LOCK_WAIT"; exit 1; fi
+if ! [[ "$FETCH_TIMEOUT" =~ ^[1-9][0-9]*$ ]]; then erro "NUMIH_FETCH_TIMEOUT precisa ser um número de segundos maior que zero: $FETCH_TIMEOUT"; exit 1; fi
+
+# Rede sem interação: nada de pedir usuário/senha no terminal ou por janela.
+export GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=false SSH_ASKPASS_REQUIRE=never
+if [ -z "${GIT_SSH_COMMAND:-}" ] && [ -z "${GIT_SSH:-}" ] && ! git config --get core.sshCommand >/dev/null 2>&1; then
+  export GIT_SSH_COMMAND="ssh -o BatchMode=yes"
+fi
+
 mkdir -p "$NUMIH_HOME"
 
-g() { git -C "$1" "${@:2}"; }
+# Todo git roda com a trava (fd 9) fechada: um processo que o git deixe em
+# segundo plano nunca herda a trava. gc e maintenance automáticos rodam em
+# primeiro plano (sem processo destacado que sobreviva à execução).
+GIT_OPTS=(-c gc.autoDetach=false -c maintenance.autoDetach=false)
+g() { git -C "$1" "${GIT_OPTS[@]}" "${@:2}" 9>&-; }
+
+# Clone e busca com prazo: um remoto que pendura não segura a trava para sempre.
+# Devolve o código do comando; 124 ou 137 = prazo estourado.
+com_prazo() { timeout --kill-after=10 "$FETCH_TIMEOUT" "$@" 9>&-; }
+
+# 0 se o caminho, com os links simbólicos resolvidos, fica dentro de $NUMIH_HOME.
+dentro_de_casa() {
+  local r; r="$(realpath -m -- "$1")" || return 1
+  case "$r" in "$NUMIH_HOME"/?*) return 0 ;; *) return 1 ;; esac
+}
 
 # Trava: duas execuções simultâneas não mexem nas mesmas cópias; a segunda
-# espera até $LOCK_WAIT s e, se a trava não sair, desiste com erro.
-exec 9>"$NUMIH_HOME/.lock"
+# espera até $LOCK_WAIT s e, se a trava não sair, desiste com erro. Um .lock
+# que seja link simbólico é recusado; o >> nunca trunca o arquivo (nem um
+# .lock que seja link físico para outro arquivo).
+if [ -L "$NUMIH_HOME/.lock" ]; then erro "$NUMIH_HOME/.lock é um link simbólico; recuso usá-lo como trava"; exit 1; fi
+exec 9>>"$NUMIH_HOME/.lock"
 if ! flock -w "$LOCK_WAIT" 9; then erro "outra execução do numih-sync segura a trava há $LOCK_WAIT s"; exit 1; fi
+
+# Guarda de diretório: a cópia, o diretório git dela e o diretório git comum
+# ficam dentro de $NUMIH_HOME, e o config não é link simbólico. Vale para sync,
+# check e map (vem antes de qualquer busca, que escreveria na cópia).
+guarda_copia() {
+  local nome="$1" dir="$2"
+  if ! dentro_de_casa "$dir"; then
+    erro "$nome: $dir resolve para fora de $NUMIH_HOME ($(realpath -m -- "$dir")); não toco nele"; return 1
+  fi
+  local gitdir comum
+  gitdir="$(g "$dir" rev-parse --absolute-git-dir 2>/dev/null)" || { erro "$dir existe mas não é repositório git"; return 1; }
+  comum="$(g "$dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 1
+  local d
+  for d in "$gitdir" "$comum"; do
+    if ! dentro_de_casa "$d"; then
+      erro "$nome: diretório git fora de $NUMIH_HOME ($d); não toco nele"; return 1
+    fi
+  done
+  # git config escreve através de um config que seja link simbólico.
+  if [ -L "$comum/config" ]; then
+    erro "$nome: .git/config é link simbólico; não toco nele"; return 1
+  fi
+}
 
 proteger() {
   # Cópia de referência: sem push e sem commit local. Tudo no config LOCAL e
   # no diretório git da própria cópia, nunca no core.hooksPath global.
+  # A guarda_copia (no integra) já garantiu o diretório git dentro de casa.
   local dir="$1"
   local gitdir; gitdir="$(g "$dir" rev-parse --absolute-git-dir)" || return 1
-  case "$gitdir" in
-    "$NUMIH_HOME"/*) ;;
-    *) erro "$dir: diretório git fora de $NUMIH_HOME ($gitdir); não toco nele"; return 1 ;;
-  esac
   local hooks="$gitdir/hooks"
+  # Um .git/hooks real fica dentro do diretório git (já conferido); só um link
+  # simbólico o levaria para outro lugar.
+  if [ -L "$hooks" ]; then
+    erro "$dir: $hooks é link simbólico; não escrevo ganchos através dele"; return 1
+  fi
   g "$dir" config --local remote.origin.pushurl "$NO_PUSH_URL" || return 1
   g "$dir" config --local submodule.recurse false || return 1
   g "$dir" config --local fetch.recurseSubmodules false || return 1
@@ -84,9 +154,11 @@ proteger() {
     local corpo='#!/bin/sh
 echo "Cópia de referência da Numih (somente leitura): trabalhe num clone ou worktree próprio." >&2
 exit 1'
-    if [ ! -f "$alvo" ] || [ "$(cat "$alvo")" != "$corpo" ]; then
-      printf '%s\n' "$corpo" > "$alvo" || return 1
-      chmod 0755 "$alvo" || return 1
+    # Gancho que é link simbólico: é substituído (o mv troca a entrada do
+    # diretório, nunca escreve no alvo do link). Escrita num temporário novo.
+    if [ -L "$alvo" ] || [ ! -f "$alvo" ] || [ "$(cat "$alvo")" != "$corpo" ]; then
+      local tmp; tmp="$(mktemp "$hooks/.numih-$h.XXXXXX")" || return 1
+      printf '%s\n' "$corpo" > "$tmp" && chmod 0755 "$tmp" && mv -fT "$tmp" "$alvo" || { rm -f "$tmp"; return 1; }
     fi
   done
 }
@@ -94,17 +166,21 @@ exit 1'
 clonar() {
   local nome="$1" dir="$2"
   info "clonando $REMOTE_BASE/$nome em $dir"
-  git clone --quiet --filter=blob:none --no-recurse-submodules --single-branch \
-    --branch "$BRANCH" "$REMOTE_BASE/$nome.git" "$dir"
+  local rc=0
+  com_prazo git "${GIT_OPTS[@]}" clone --quiet --filter=blob:none --no-recurse-submodules --single-branch \
+    --branch "$BRANCH" "$REMOTE_BASE/$nome.git" "$dir" || rc=$?
+  if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then
+    erro "$nome: o clone passou de $FETCH_TIMEOUT s (NUMIH_FETCH_TIMEOUT) e foi interrompido"
+  fi
+  # Clone que falha ou é interrompido (TERM): o próprio git apaga o diretório.
+  return "$rc"
 }
 
 # Verifica se a cópia está íntegra (main, limpa, sem commit local, origem certa).
 # Imprime o motivo e devolve 1 se não estiver.
 integra() {
   local nome="$1" dir="$2"
-  if ! g "$dir" rev-parse --git-dir >/dev/null 2>&1; then
-    erro "$dir existe mas não é repositório git"; return 1
-  fi
+  guarda_copia "$nome" "$dir" || return 1
   if [ "$(g "$dir" rev-parse --is-shallow-repository)" = true ]; then
     erro "$dir: clone raso (--depth) não avança por fast-forward com segurança; recrie-o sem --depth"; return 1
   fi
@@ -142,13 +218,21 @@ integra() {
 
 # Estas funções rodam em contexto `|| ...`, onde o set -e não vale: cada passo
 # que pode falhar devolve 1 explicitamente.
+# Sem --prune: com um único refspec explícito ele só podaria a própria
+# origin/main, e se a main sumir da origin a busca já falha.
+# $3: o que já foi feito na cópia antes da busca (para a mensagem de erro).
 buscar() {
-  local nome="$1" dir="$2"
-  if ! g "$dir" fetch --quiet --prune --no-recurse-submodules origin \
-      "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"; then
-    erro "$nome: falha ao buscar a origin ($(g "$dir" config --get remote.origin.url 2>/dev/null || echo '?')); nada foi alterado"
-    return 1
+  local nome="$1" dir="$2" feito="$3" rc=0
+  com_prazo git -C "$dir" "${GIT_OPTS[@]}" fetch --quiet --no-recurse-submodules origin \
+      "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" || rc=$?
+  if [ "$rc" = 0 ]; then return 0; fi
+  local url; url="$(g "$dir" config --get remote.origin.url 2>/dev/null || echo '?')"
+  if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then
+    erro "$nome: a busca na origin ($url) passou de $FETCH_TIMEOUT s (NUMIH_FETCH_TIMEOUT) e foi interrompida; $feito"
+  else
+    erro "$nome: falha ao buscar a origin ($url); $feito"
   fi
+  return 1
 }
 
 # Devolve 1 se a origin/main não descende do HEAD (histórico reescrito na origin).
@@ -162,7 +246,10 @@ ancestral() {
 
 sincronizar_um() {
   local nome="$1" dir="$2"
-  if [ ! -e "$dir" ]; then
+  if [ ! -e "$dir" ] && [ ! -L "$dir" ]; then
+    if ! dentro_de_casa "$dir"; then
+      erro "$nome: $dir resolve para fora de $NUMIH_HOME ($(realpath -m -- "$dir")); não clono nele"; return 1
+    fi
     mkdir -p "$(dirname "$dir")" || return 1
     if ! clonar "$nome" "$dir"; then
       erro "$nome: falha ao clonar $REMOTE_BASE/$nome"
@@ -171,7 +258,7 @@ sincronizar_um() {
   fi
   integra "$nome" "$dir" || return 1
   proteger "$dir" || return 1
-  buscar "$nome" "$dir" || return 1
+  buscar "$nome" "$dir" "o HEAD e os arquivos da cópia não foram alterados (só a configuração local de proteção e os ganchos foram reaplicados antes da busca)" || return 1
   local antes depois
   antes="$(g "$dir" rev-parse HEAD)" || return 1
   ancestral "$nome" "$dir" || return 1
@@ -191,7 +278,7 @@ checar_um() {
   local nome="$1" dir="$2" fetch="$3"
   if [ ! -d "$dir" ]; then erro "$nome: ausente em $dir (rode: numih-sync sync)"; return 1; fi
   integra "$nome" "$dir" || return 1
-  if [ "$fetch" = 1 ]; then buscar "$nome" "$dir" || return 1; fi
+  if [ "$fetch" = 1 ]; then buscar "$nome" "$dir" "nada foi alterado na cópia" || return 1; fi
   if ! g "$dir" rev-parse --verify --quiet "refs/remotes/origin/$BRANCH" >/dev/null; then
     erro "$nome: sem origin/$BRANCH na cópia (rode: numih-sync sync)"; return 1
   fi
@@ -238,7 +325,10 @@ case "$cmd" in
     integra workspace "$NUMIH_HOME/workspace"
     mapa="$SELF_DIR/numih-map.ts"
     [ -f "$mapa" ] || { erro "numih-map.ts não encontrado ao lado do script ($mapa)"; exit 1; }
-    bun "$mapa" --workspace "$NUMIH_HOME/workspace" --out "$NUMIH_HOME"
+    for f in modulos.json MODULOS.md; do
+      if [ -L "$NUMIH_HOME/$f" ]; then erro "$NUMIH_HOME/$f é link simbólico; recuso escrever através dele"; exit 1; fi
+    done
+    bun "$mapa" --workspace "$NUMIH_HOME/workspace" --out "$NUMIH_HOME" 9>&-
     ;;
   mod)
     nome="${1:-}"
@@ -246,6 +336,9 @@ case "$cmd" in
     sincronizar_um "$nome" "$NUMIH_HOME/mod/$nome"
     ;;
   install)
+    # O install(1) troca um arquivo de destino que seja link simbólico (não
+    # escreve no alvo); só o diretório bin precisa ser conferido.
+    if [ -L "$NUMIH_HOME/bin" ]; then erro "$NUMIH_HOME/bin é link simbólico; recuso instalar através dele"; exit 1; fi
     mkdir -p "$NUMIH_HOME/bin"
     for f in numih-sync numih-map.ts; do
       if ! cmp -s "$SELF_DIR/$f" "$NUMIH_HOME/bin/$f" 2>/dev/null; then
@@ -255,9 +348,5 @@ case "$cmd" in
         info "já instalado: $NUMIH_HOME/bin/$f"
       fi
     done
-    ;;
-  *)
-    sed -n '2,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
-    [ -z "$cmd" ] || [ "$cmd" = help ] || [ "$cmd" = -h ] || exit 2
     ;;
 esac
