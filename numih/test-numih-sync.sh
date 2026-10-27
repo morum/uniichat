@@ -75,17 +75,44 @@ fi
 exec "$REAL_GIT" "\$@"
 EOF
 chmod 0755 "$T/shim/git"
-# Linhas do registro que NÃO são `git -C <home>/workspace` nem
-# `git -C <home>/cursor` sem GIT_DIR e GIT_WORK_TREE (as únicas aceitas no
-# check com uma pasta vazia em mod/), além da leitura global do
-# core.sshCommand que o script faz ao começar (sem -C, fora de <home>).
-fora_de_ws_cursor() { # NUMIH_HOME
-  awk -v w="args=-C $1/workspace " -v c="args=-C $1/cursor " -v fim=" gitdir= worktree=" \
+# Filtro estrito do registro: imprime toda linha que NÃO é exatamente uma
+# chamada `git -C` na workspace ou na cursor, isto é, os argumentos começam
+# por `-C <home>/workspace` ou `-C <home>/cursor`, seguidos (ou não) das opções
+# fixas do script (-c gc.autoDetach=false -c maintenance.autoDetach=false) e
+# logo depois de um subcomando de uma lista fechada (os que o check usa); e
+# sem GIT_DIR nem GIT_WORK_TREE no ambiente. O git só lê opções globais
+# antes do subcomando, então nada entre o -C e o subcomando escapa: um
+# segundo -C, um --git-dir, um --work-tree ou qualquer outro -c (como
+# core.worktree) que apontem para outra pasta (mod/lib, por exemplo) aparecem.
+# Os argumentos depois do subcomando não são conferidos (são do subcomando:
+# `rev-parse --git-dir` é legítimo). A única outra linha aceita é a leitura
+# global do core.sshCommand que o script faz ao começar (sem -C, fora de
+# <home>). Os argumentos são separados por espaço (o git falso grava "$*"),
+# então o filtro não distingue um argumento com espaço de dois argumentos.
+fora_de_ws_cursor() { # NUMIH_HOME [registro; padrão $T/git.log]
+  awk -v h="$1" -v fim=" gitdir= worktree=" \
       -v ssh=" args=config --get core.sshCommand pwd=" -v casa="$1/" '
+    BEGIN {
+      opts = "-c gc.autoDetach=false -c maintenance.autoDetach=false "
+      n = split("rev-parse config symbolic-ref status rev-list submodule log merge-base fetch", l, " ")
+      for (k = 1; k <= n; k++) permitido[l[k]] = 1
+    }
     substr($0, length($0) - length(fim) + 1) != fim { print; next }
-    index($0, w) || index($0, c) { next }
     (i = index($0, ssh)) && index(substr($0, i + length(ssh)), casa) != 1 && $0 ~ /^prompt=[^ ]* askpass=[^ ]* ssh=[^ ]* fd9=[^ ]* args=config --get core\.sshCommand pwd=/ { next }
-    { print }' "$T/git.log" 2>/dev/null
+    {
+      i = index($0, " args="); if (!i) { print; next }
+      j = 0; while ((k = index(substr($0, j + 1), " pwd=")) > 0) j += k
+      if (j <= i) { print; next }
+      a = substr($0, i + 6, j - i - 6)
+      resto = ""
+      pw = "-C " h "/workspace "; pc = "-C " h "/cursor "
+      if (substr(a, 1, length(pw)) == pw) resto = substr(a, length(pw) + 1)
+      else if (substr(a, 1, length(pc)) == pc) resto = substr(a, length(pc) + 1)
+      else { print; next }
+      if (substr(resto, 1, length(opts)) == opts) resto = substr(resto, length(opts) + 1)
+      split(resto, t, " ")
+      if (!(t[1] in permitido)) { print; next }
+    }' "${2:-$T/git.log}" 2>/dev/null
 }
 # gh falso: nenhum teste usa o gh real.
 mkdir -p "$T/gh-falso"; printf '#!/bin/sh\nexit 1\n' > "$T/gh-falso/gh"; chmod 0755 "$T/gh-falso/gh"
@@ -829,6 +856,58 @@ else falha "a busca com ssh que ignora TERM (kill -9) não começou"; cat "$T/ou
 mata_sobras "$PENDURA4"
 git -C "$NUMIH_HOME/cursor" config remote.origin.url "$T/remotos/cursor.git"
 
+# Filtro estrito (fora_de_ws_cursor) testado sozinho, com chamadas reais pelo
+# git falso num NUMIH_HOME próprio com workspace, cursor e mod/lib. Os casos
+# que apontam o git para mod/lib a partir de `-C <home>/workspace` (segundo -C,
+# --git-dir, --work-tree, -c core.worktree) precisam ser pegos; o controle
+# confere com o git real que o segundo -C, o --git-dir e o --work-tree chegam
+# mesmo a mod/lib (o filtro antigo, que só olhava o começo da linha, os
+# aceitava). As chamadas legítimas do check precisam passar.
+HF="$T/home-filtro"
+for r in workspace cursor mod/lib; do git init -q "$HF/$r"; done
+filtro_caso() { # descrição, pega|passa, pasta corrente, argumentos do git...
+  local d="$1" e="$2" p="$3" f; shift 3
+  rm -f "$T/git.log"
+  (cd "$p" && PATH="$T/shim:$PATH" git "$@" >/dev/null 2>&1 9>&-) || :
+  if [ ! -s "$T/git.log" ]; then falha "filtro: $d: o git falso não registrou a chamada"; return; fi
+  f="$(fora_de_ws_cursor "$HF")"
+  if [ "$e" = pega ]; then
+    [ -n "$f" ] && ok "filtro: $d: pego" || { falha "filtro: $d: aceito, devia ser pego"; cat "$T/git.log"; }
+  else
+    [ -z "$f" ] && ok "filtro: $d: aceito" || { falha "filtro: $d: pego, devia ser aceito"; printf '%s\n' "$f"; }
+  fi
+}
+# controle: os três casos de fato apontam o git para mod/lib (o git real)
+[ "$(git -C "$HF/workspace" -C ../mod/lib rev-parse --show-toplevel 2>/dev/null)" = "$HF/mod/lib" ] \
+  && ok "filtro: controle, segundo -C chega a mod/lib" || falha "filtro: controle, segundo -C não chega a mod/lib"
+[ "$(git -C "$HF/workspace" --git-dir=../mod/lib/.git rev-parse --absolute-git-dir 2>/dev/null)" = "$HF/mod/lib/.git" ] \
+  && ok "filtro: controle, --git-dir chega a mod/lib" || falha "filtro: controle, --git-dir não chega a mod/lib"
+# Sem controle para o -c core.worktree: no git testado (2.56) ele é ignorado
+# na linha de comando quando o git acha o repositório sozinho (o --work-tree
+# não é). O filtro o pega mesmo assim, como qualquer -c fora das opções fixas.
+OPTS_G=(-c gc.autoDetach=false -c maintenance.autoDetach=false)
+filtro_caso "git -C workspace rev-parse (controle legítimo)" passa "$T" -C "$HF/workspace" rev-parse --git-dir
+filtro_caso "git -C workspace com as opções do script, rev-parse" passa "$T" -C "$HF/workspace" "${OPTS_G[@]}" rev-parse --absolute-git-dir
+filtro_caso "git -C cursor com as opções do script, status" passa "$T" -C "$HF/cursor" "${OPTS_G[@]}" status --porcelain=v1 --untracked-files=all --ignore-submodules=none
+filtro_caso "git -C cursor com as opções do script, log com espaço no formato" passa "$T" -C "$HF/cursor" "${OPTS_G[@]}" log -1 --format=%cd "--date=format:%Y-%m-%d %H:%M"
+filtro_caso "leitura global do core.sshCommand fora de casa" passa "$T" config --get core.sshCommand
+filtro_caso "leitura do core.sshCommand dentro de casa" pega "$HF/mod/lib" config --get core.sshCommand
+filtro_caso "M1: git -C workspace -C ../mod/lib rev-parse" pega "$T" -C "$HF/workspace" -C ../mod/lib rev-parse --git-dir
+filtro_caso "M1: segundo -C depois das opções do script" pega "$T" -C "$HF/workspace" "${OPTS_G[@]}" -C ../mod/lib rev-parse --git-dir
+filtro_caso "M2: git -C workspace --git-dir=../mod/lib/.git rev-parse" pega "$T" -C "$HF/workspace" --git-dir=../mod/lib/.git rev-parse --git-dir
+filtro_caso "M2: --git-dir separado depois das opções do script" pega "$T" -C "$HF/workspace" "${OPTS_G[@]}" --git-dir ../mod/lib/.git rev-parse --git-dir
+[ "$(git -C "$HF/workspace" --work-tree=../mod/lib rev-parse --show-toplevel 2>/dev/null)" = "$HF/mod/lib" ] \
+  && ok "filtro: controle, --work-tree chega a mod/lib" || falha "filtro: controle, --work-tree não chega a mod/lib"
+filtro_caso "M2: --work-tree=../mod/lib" pega "$T" -C "$HF/workspace" "${OPTS_G[@]}" --work-tree=../mod/lib status --porcelain
+filtro_caso "M3: git -C workspace -c core.worktree=../mod/lib status" pega "$T" -C "$HF/workspace" -c core.worktree=../mod/lib status --porcelain
+filtro_caso "M3: -c core.worktree=../../mod/lib depois das opções do script" pega "$T" -C "$HF/workspace" "${OPTS_G[@]}" -c core.worktree=../../mod/lib status --porcelain
+filtro_caso "argumento --git-dir do rev-parse (depois do subcomando)" passa "$T" -C "$HF/cursor" "${OPTS_G[@]}" rev-parse --git-dir
+filtro_caso "subcomando fora da lista fechada" pega "$T" -C "$HF/workspace" "${OPTS_G[@]}" worktree list
+filtro_caso "git -C na própria mod/lib" pega "$T" -C "$HF/mod/lib" "${OPTS_G[@]}" rev-parse --git-dir
+filtro_caso "git -C em <home>/workspace2 (prefixo parecido)" pega "$T" -C "$HF/workspace2" "${OPTS_G[@]}" rev-parse --git-dir
+GIT_DIR="$HF/mod/lib/.git" filtro_caso "git -C workspace com GIT_DIR no ambiente" pega "$T" -C "$HF/workspace" rev-parse --git-dir
+rm -rf "$HF" "$T/git.log"
+
 # Sinal no próprio numih-sync durante um clone lento (remoto que pendura).
 # TERM, HUP e KILL por PID matam o script na hora; o vigia (avisado pelo
 # setpriv --pdeathsig) interrompe o git, que limpa o que baixou, mas a pasta
@@ -862,11 +941,13 @@ for sig in TERM HUP KILL; do
     # que roda nela) e só uma linha a cita
     [ -s "$T/git.log" ] && ok "$sig: controle, o git falso registra o git do check" || falha "$sig: controle, o git do check não passou pelo git falso"
     grep -qF -- "$HS/mod/lib" "$T/git.log" 2>/dev/null && { falha "$sig: check rodou git na pasta vazia"; grep -F -- "$HS/mod/lib" "$T/git.log"; } || ok "$sig: check não roda git na pasta vazia"
-    # e, mais estrito: toda chamada do check é `git -C` na workspace ou na
-    # cursor, sem GIT_DIR nem GIT_WORK_TREE no ambiente (um git apontado para a
-    # pasta vazia só pelo ambiente, ou rodado fora das duas cópias, aparece aqui)
+    # e, mais estrito (filtro fora_de_ws_cursor): toda chamada do check é
+    # `git -C` na workspace ou na cursor com um subcomando da lista fechada,
+    # sem segundo -C, -c fora das opções fixas, --git-dir ou --work-tree e sem GIT_DIR nem
+    # GIT_WORK_TREE no ambiente (um git apontado para a pasta vazia por uma
+    # dessas vias, ou rodado fora das duas cópias, aparece aqui)
     fora="$(fora_de_ws_cursor "$HS")"
-    [ -s "$T/git.log" ] && [ -z "$fora" ] && ok "$sig: check só roda git com -C na workspace e na cursor, sem GIT_DIR/GIT_WORK_TREE" || { falha "$sig: check rodou git fora de -C workspace/cursor ou com GIT_DIR/GIT_WORK_TREE"; printf '%s\n' "$fora" | head -5; }
+    [ -s "$T/git.log" ] && [ -z "$fora" ] && ok "$sig: check só roda git -C na workspace e na cursor, com subcomando da lista, sem segundo -C, outro -c, --git-dir, --work-tree, GIT_DIR ou GIT_WORK_TREE" || { falha "$sig: check rodou git fora do filtro estrito (outra pasta, segundo -C, -c, --git-dir, --work-tree, GIT_DIR ou GIT_WORK_TREE)"; printf '%s\n' "$fora" | head -5; }
     [ "$(grep -cF "$HS/mod/lib" "$T/out")" = 1 ] && ok "$sig: check cita a pasta vazia uma só vez" || { falha "$sig: check cita a pasta vazia mais de uma vez"; cat "$T/out"; }
     if [ "$sig" = KILL ]; then
       espera_rc "$sig: mod lib seguinte funciona" 0 env NUMIH_HOME="$HS" NUMIH_REMOTE_BASE="$T/remotos" "$SYNC" mod lib
@@ -879,7 +960,13 @@ for sig in TERM HUP KILL; do
     rm -f "$T/git.log"
     espera_rc "$sig: check em dia depois" 0 env PATH="$T/shim:$PATH" NUMIH_HOME="$HS" NUMIH_REMOTE_BASE="$T/remotos" "$SYNC" check
     grep -qF -- "-C $HS/mod/lib " "$T/git.log" 2>/dev/null && ok "$sig: controle, o git do check na cópia refeita aparece no registro" || { falha "$sig: controle, o git do check na cópia refeita não aparece no registro"; cat "$T/git.log" 2>/dev/null || :; }
-    [ -n "$(fora_de_ws_cursor "$HS")" ] && ok "$sig: controle, o filtro estrito acha o git do check na cópia refeita" || falha "$sig: controle, o filtro estrito não acha o git do check na cópia refeita"
+    fora="$(fora_de_ws_cursor "$HS")"
+    grep -qF -- "args=-C $HS/mod/lib " <<<"$fora" && ok "$sig: controle, o filtro estrito acha o git do check na cópia refeita" || { falha "$sig: controle, o filtro estrito não acha o git do check na cópia refeita"; printf '%s\n' "$fora" | head -5; }
+    # e as chamadas legítimas do mesmo check (workspace e cursor) passam por ele
+    grep -qF -- "args=-C $HS/workspace " "$T/git.log" && grep -qF -- "args=-C $HS/cursor " "$T/git.log" \
+      && ! grep -qF -e "args=-C $HS/workspace " -e "args=-C $HS/cursor " <<<"$fora" \
+      && ok "$sig: controle, o filtro estrito aceita o git do check na workspace e na cursor" \
+      || { falha "$sig: controle, o filtro estrito recusa (ou não viu) o git do check na workspace e na cursor"; printf '%s\n' "$fora" | grep -F -e "-C $HS/workspace " -e "-C $HS/cursor " | head -5 || :; }
   else falha "$sig: o clone lento não começou"; cat "$T/out-sinal"; kill -9 "$ps5" 2>/dev/null || true; fi
   mata_sobras "$PENDURA5"
 done
