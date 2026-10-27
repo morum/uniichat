@@ -58,12 +58,30 @@ M04	bin/numih-sync	sync	kill -0 "$p" 2>/dev/null || break	break
 M11	bin/numih-sync	sync	if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then\n    erro "$nome: o clone	if [ "$rc" = 124 ]; then\n    erro "$nome: o clone
 M11b	bin/numih-sync	sync	if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then\n    erro "$nome: a busca	if [ "$rc" = 124 ]; then\n    erro "$nome: a busca
 M13	bin/numih-sync	sync	ASCII_ALNUM='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'	ASCII_ALNUM='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
-C5a	bin/numih-sync	sync	  apagar_parcial "$nome" "$dir" "$id"\n	
+C5a	bin/numih-sync	sync	  apagar_parcial "$nome" "$dir" "$id" || :\n	
 C5b	bin/numih-sync	sync	 || [ "$(stat -c '%d:%i' -- "$dir" 2>/dev/null)" != "$id" ]	
 N1	bin/numih-sync	sync	if [[ "$nome" == *. ]]; then	if false; then
 N1m	bin/numih-map.ts	map	 && !s.endsWith(".")	
 F1	bin/numih-sync	sync	RE_NUM_POS='^[0123456789]*[123456789][0123456789]*$'	RE_NUM_POS='^[123456789][0123456789]*$'
 F2	bin/numih-sync	sync	RE_NUM_POS='^[0123456789]*[123456789][0123456789]*$'	RE_NUM_POS='^[0123456789]+$'
+V1	bin/numih-sync	sync	  if [ -L "$dir" ] || [ ! -d "$dir" ] || [ "$(stat	  if [ ! -d "$dir" ] || [ "$(stat
+V2	bin/numih-sync	sync	" != "$id" ] || ! dentro_de_casa "$dir"; then	" != "$id" ]; then
+V3	bin/numih-sync	sync	 || [ ! -d "$dir" ] || [ "$(stat	 || [ "$(stat
+V4	bin/numih-sync	sync	if ! mkdir -- "$dir" 2>/dev/null; then	if ! mkdir -p -- "$dir" 2>/dev/null; then
+V6	bin/numih-sync	sync	if rm -rf -- "$dir"; then	if rm -rf -- "$NUMIH_HOME/mod"; then
+V7	bin/numih-sync	sync	if [[ "$nome" == *. ]]; then	if [[ "$nome" == *.git. ]]; then
+V13	bin/numih-sync	sync	clone --quiet --filter=blob:none --no-recurse-submodules	clone --quiet --no-recurse-submodules
+V16	bin/numih-sync	sync	RE_NUM_POS='^[0123456789]*[123456789][0123456789]*$'	RE_NUM_POS='^[0123456789]*[12345678][0123456789]*$'
+V18a	bin/numih-sync	sync	não a apago"; return 1	não a apago"; return 0
+V18b	bin/numih-sync	sync	apague-a antes de rodar de novo"; return 1	apague-a antes de rodar de novo"
+V20	bin/numih-sync	sync	    erro "$nome: não consegui apagar a pasta parcial do clone ($dir); apague-a antes de rodar de novo"; return 1	    return 1
+V21	bin/numih-sync	sync	|| :\n  return "$rc"	|| :\n  return 0
+E1	bin/numih-sync	sync	  [ ! -L "$1" ] || return 1\n	
+E2	bin/numih-sync	sync	  dentro_de_casa "$1" || return 1\n	
+E3	bin/numih-sync	sync	  [ -z "$c" ]\n}	  true\n}
+E4	bin/numih-sync	sync	  if pasta_vazia "$dir"; then\n    if ! rmdir	  if false; then\n    if ! rmdir
+E5	bin/numih-sync	sync	  if pasta_vazia "$dir"; then\n    erro	  if false; then\n    erro
+E6	bin/numih-sync	sync	if ! rmdir -- "$dir" 2>/dev/null; then	if ! rm -rf -- "$dir" 2>/dev/null; then
 TABELA
 )"
 

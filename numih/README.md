@@ -84,10 +84,43 @@ fiquem presos numa cópia pela metade. Só a pasta criada por esse clone: o
 `numih-sync` a cria (sem `-p`, então falha se ela já existir), o git clona
 nela vazia e, antes de apagar, confere que ela ainda é o mesmo diretório
 (dispositivo e inode), não é link simbólico e fica dentro de `NUMIH_HOME`.
-Uma pasta preexistente nunca recebe o clone nem é apagada. Não coberto: se o
-próprio `numih-sync` morrer por `kill -9` no meio do clone, a pasta pela
-metade fica, e o `sync` e o `check` seguintes falham nela até ela ser apagada
-à mão.
+Uma pasta preexistente nunca recebe o clone nem é apagada (nem uma que apareça
+entre a checagem e o `mkdir`: sem `-p`, ele falha e o clone não começa). O
+`apagar_parcial` devolve 0 quando a pasta não existe mais e 1 quando ela
+ficou (recusada ou `rm` que falhou); o `clonar` repassa o código do clone, e
+as mensagens dizem se a pasta ficou.
+
+Se o próprio `numih-sync` morrer no meio do clone:
+
+- **TERM, HUP ou KILL no PID do script**: ele morre na hora, sem chance de
+  limpar (no KILL, nenhum `trap` roda). O vigia, avisado pelo
+  `setpriv --pdeathsig`, interrompe o git, que apaga o que baixou, mas a pasta
+  criada pelo script fica, **vazia**. A execução seguinte trata essa pasta
+  como ausente: `sync` e `mod` a removem (com `rmdir`, que só apaga diretório
+  vazio) e clonam de novo; `check` e `map` dizem «pasta vazia (sobra de um
+  clone interrompido); rode: numih-sync sync». Só conta como pasta vazia um
+  diretório de verdade (não link simbólico) dentro de `NUMIH_HOME`.
+- **INT (Ctrl-C no terminal, que vai ao grupo do script)**: o vigia recebe o
+  INT e interrompe o clone; o bash do script, que esperava o vigia, só morre
+  por INT se o comando também morreu por INT, então segue: o clone conta como
+  falho e a pasta é apagada na hora. **INT só no PID do script**: o bash
+  espera o clone terminar (ou o prazo vencer) antes de decidir, e a pasta
+  também é apagada.
+
+Por que não há `trap` de TERM, HUP e INT no script: o bash só roda um `trap`
+depois que o comando em primeiro plano termina, então com `trap` um TERM no
+script esperaria o clone ou a busca acabar (até `NUMIH_FETCH_TIMEOUT`) em vez
+de parar na hora; e o KILL nunca passa por `trap`. Tratar a pasta vazia como
+ausente cobre todos os sinais do mesmo jeito.
+
+Não coberto: se, além de o script morrer, o próprio git ignorar o TERM (só
+o KILL do `--kill-after` o derruba) ou o vigia também levar `kill -9`, o git
+não limpa e a pasta fica **com** conteúdo pela metade; ela não é vazia, então
+nunca é apagada automaticamente, e `sync` e `check` falham nela («existe mas
+não é repositório git») até ela ser apagada à mão. Sem o `setpriv`, o vigia
+não fica sabendo da morte do script: o clone segue até terminar (e a próxima
+execução aplica as proteções) ou até o prazo (e a pasta fica vazia, como
+acima).
 
 O que é garantido sobre processos que sobram: o git roda num grupo de
 processos próprio (o do `timeout`), e um vigia espera o `timeout` terminar e
@@ -139,16 +172,36 @@ Duas execuções simultâneas se serializam por uma trava (`flock` em
 ## Testes
 
 ```bash
-bash numih/test-numih-sync.sh   # 473 verificações com remotos git locais num tmp próprio
+bash numih/test-numih-sync.sh   # 558 verificações com remotos git locais num tmp próprio
 bun test numih/                 # 14 testes do gerador do mapa (repositório git, fixtures, gh falso)
-bash numih/mutacoes.sh          # 45 mutações (IDs A1, S22…S44, B1…B6, V01, T07, M01…M04, M11, M11b, M13, C5a/C5b, N1/N1m, F1/F2); todas precisam morrer
+bash numih/mutacoes.sh          # 63 mutações (IDs A1, S22…S44, B1…B6, V01, T07, M01…M04, M11, M11b, M13, C5a/C5b, N1/N1m, F1/F2, V1…V21, E1…E6); todas precisam morrer
 ```
 
 Algumas verificações são estruturais, porque o comportamento não muda sem a
 opção: o clone ignora `submodule.recurse` e a busca só recursaria em submódulo
 inicializado (que a cópia do workspace recusa), então o teste confere
 `--no-recurse-submodules` na linha de comando do git e `submodule.recurse` /
-`fetch.recurseSubmodules` = `false` no config local.
+`fetch.recurseSubmodules` = `false` no config local. O clone parcial
+(`--filter=blob:none`) também: com remotos locais o resultado é o mesmo com ou
+sem ele (só muda o que é baixado), então o teste confere a opção na linha de
+comando de todo clone.
+
+Sinais no próprio `numih-sync` durante um clone lento (remoto que pendura):
+para TERM, HUP e KILL no PID, o teste confere que o script morre pelo sinal,
+que nada do clone sobra, que a pasta fica vazia (a sobra reproduzida), que o
+`check` aponta a pasta vazia, que o `sync` (TERM, HUP) ou o `mod lib` (KILL)
+seguinte a remove e clona de novo, e que o `check` final fica em dia. Para
+INT, no grupo (Ctrl-C) e só no PID, confere que a pasta é apagada na hora e
+que o `mod lib` seguinte clona.
+
+A limpeza do clone também é testada por partes: o `apagar_parcial` é extraído
+do script e chamado com um id que bate com o caminho, para que cada guarda
+recuse sozinha (link simbólico, o que não é diretório, pasta fora de casa
+por um pai que é link) e para o `rm` que falha (aviso e código 1). Uma cópia
+vizinha em `mod/` prova que só a pasta do clone é apagada. Um `mkdir` falso
+cria a pasta do clone (de outro dono) logo antes do `mkdir` dela, e um `ls`
+falso diz «vazia» para uma pasta com conteúdo: nos dois casos nada alheio é
+apagado (o `mkdir` sem `-p` e o `rmdir` são as barreiras).
 
 Os testes usam `HOME`, `NUMIH_HOME`, config global do git e `GH_CONFIG_DIR`
 temporários. Isso **não** isola as credenciais do `gh`: ele pode achá-las no

@@ -20,7 +20,7 @@ mata_sobras() { # duração do sleep
   done
 }
 SOBRAS=()
-trap 'jobs -p | xargs -r kill 2>/dev/null || true; for d in "${SOBRAS[@]}"; do mata_sobras "$d"; done; rm -rf "$T"' EXIT
+trap 'jobs -p | xargs -r kill 2>/dev/null || true; for d in "${SOBRAS[@]}"; do mata_sobras "$d"; done; chmod -R u+w "$T" 2>/dev/null; rm -rf "$T"' EXIT
 mkdir -p "$T/home-falso" "$T/gh"
 export HOME="$T/home-falso" GH_CONFIG_DIR="$T/gh"
 unset GH_TOKEN GITHUB_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN
@@ -103,7 +103,7 @@ copia_limpa_na_main() { # descrição, dir
 
 # Remotos: workspace (com um submódulo registrado) e cursor
 mkdir -p "$T/remotos"
-for r in cursor lib workspace .oculto ffteste x.git a.git. ab12 9z; do
+for r in cursor lib workspace .oculto ffteste x.git a.git. x. ab12 9z; do
   git init -q --bare "$T/remotos/$r.git"
   git clone -q "$T/remotos/$r.git" "$T/src-$r" 2>/dev/null
   echo "$r" > "$T/src-$r/README.md"
@@ -288,6 +288,10 @@ done
 espera_rc "mod recusa nome terminado em ponto (a.git.)" 1 "$SYNC" mod "a.git."
 tem "motivo: termina em ponto (a.git.)" "^numih-sync: erro: nome de repositório inválido: 'a\.git\.' \(não pode terminar em ponto\)$"
 [ ! -e "$NUMIH_HOME/mod/a.git." ] && ok "nada clonado para a.git." || falha "clonou a.git."
+# x. existe no remoto (x..git) e não termina em .git.: a recusa é do ponto final.
+espera_rc "mod recusa nome terminado em ponto (x.)" 1 "$SYNC" mod "x."
+tem "motivo: termina em ponto (x.)" "^numih-sync: erro: nome de repositório inválido: 'x\.' \(não pode terminar em ponto\)$"
+[ ! -e "$NUMIH_HOME/mod/x." ] && ok "nada clonado para x." || falha "clonou x."
 
 # Clone que falha: a pasta que ele criou é apagada, mesmo quando o git morre
 # por KILL (que ele não tem como limpar). Antes, mod/<nome> ficava pela metade
@@ -295,11 +299,15 @@ tem "motivo: termina em ponto (a.git.)" "^numih-sync: erro: nome de repositório
 # ignora TERM: o --kill-after manda KILL 10 s depois do prazo (rc 137).
 PARCIAL="$((300000 + RANDOM * 7 + $$ % 7))"; SOBRAS+=("$PARCIAL")
 HP="$T/home-parcial"
+# Outra cópia ao lado em mod/: a limpeza apaga só a pasta do clone, nunca mod/.
+mkdir -p "$HP/mod/vizinha"; echo minha > "$HP/mod/vizinha/marca"
 ini=$SECONDS
 espera_rc "clone morto por KILL falha" 1 timeout 45 env PATH="$T/shim:$PATH" NUMIH_TESTE_CLONE_PARCIAL="$PARCIAL" NUMIH_HOME="$HP" NUMIH_FETCH_TIMEOUT=1 "$SYNC" mod lib
 dur=$((SECONDS - ini))
 tem "motivo: prazo no clone morto por KILL (rc 137)" "^numih-sync: erro: lib: o clone passou de 1 s \(NUMIH_FETCH_TIMEOUT\) e foi interrompido$"
 tem "informa a pasta parcial removida" "^lib: pasta parcial do clone removida \($HP/mod/lib\)$"
+tem "diz que o clone falhou (KILL)" "^numih-sync: erro: lib: falha ao clonar $T/remotos/lib$"
+[ "$(cat "$HP/mod/vizinha/marca" 2>/dev/null)" = minha ] && ok "a cópia vizinha em mod/ ficou intacta" || falha "a limpeza do clone apagou a cópia vizinha em mod/"
 [ "$dur" -lt 30 ] && ok "clone que ignora TERM foi morto pelo KILL ($dur s)" || falha "clone que ignora TERM levou $dur s"
 [ ! -e "$HP/mod/lib" ] && ok "clone morto por KILL não deixa mod/lib pela metade" || { falha "sobrou mod/lib pela metade"; ls -la "$HP/mod/lib"; }
 sleep 0.3
@@ -309,6 +317,20 @@ espera_rc "mod lib volta a clonar depois do KILL" 0 env NUMIH_HOME="$HP" "$SYNC"
 # Clone que falha por erro comum (repositório inexistente): pasta apagada.
 espera_rc "mod de repositório inexistente falha" 1 env NUMIH_HOME="$HP" "$SYNC" mod naoexiste
 [ ! -e "$HP/mod/naoexiste" ] && ok "clone com erro não deixa pasta" || falha "sobrou mod/naoexiste"
+tem "diz que o clone falhou (inexistente)" "^numih-sync: erro: naoexiste: falha ao clonar $T/remotos/naoexiste$"
+[ "$(cat "$HP/mod/vizinha/marca" 2>/dev/null)" = minha ] && ok "a cópia vizinha segue intacta (clone com erro)" || falha "o clone com erro apagou a cópia vizinha"
+# Corrida: a pasta do clone aparece (de outro dono) entre a checagem de
+# ausência e a criação. O mkdir sem -p recusa; com -p o clone usaria a pasta
+# alheia como sua e a apagaria ao falhar. Um mkdir falso cria a pasta alheia
+# quando o script cria o pai (mod/), logo antes do mkdir da pasta do clone.
+HC="$T/home-corrida"; REAL_MKDIR="$(command -v mkdir)"
+"$REAL_MKDIR" -p "$T/shim-mkdir"
+printf '#!/bin/sh\nif [ -n "${NUMIH_TESTE_CORRIDA-}" ] && [ "$1" = -p ] && [ "$2" = "$NUMIH_TESTE_CORRIDA" ]; then\n  "%s" -p "$2/lib" && echo alheio > "$2/lib/alheio"; exit $?\nfi\nexec "%s" "$@"\n' "$REAL_MKDIR" "$REAL_MKDIR" > "$T/shim-mkdir/mkdir"
+chmod 0755 "$T/shim-mkdir/mkdir"
+espera_rc "clone recusa pasta criada por outro na corrida" 1 env PATH="$T/shim-mkdir:$PATH" NUMIH_TESTE_CORRIDA="$HC/mod" NUMIH_HOME="$HC" "$SYNC" mod lib
+tem "motivo: pasta já existe na corrida" "^numih-sync: erro: lib: não consegui criar $HC/mod/lib \(já existe ou sem permissão\); não clono nele$"
+grep -q clonando "$T/out" && falha "clonou na pasta criada por outro" || ok "não clona na pasta criada por outro"
+[ "$(cat "$HC/mod/lib/alheio" 2>/dev/null)" = alheio ] && ok "pasta criada por outro intacta" || falha "apagou a pasta criada por outro"
 # Pasta trocada durante o clone: não é mais a criada por ele e nunca é apagada.
 HX="$T/home-troca"
 espera_rc "clone que falha com a pasta trocada" 1 env PATH="$T/shim:$PATH" NUMIH_TESTE_CLONE_TROCA=1 NUMIH_HOME="$HX" "$SYNC" mod lib
@@ -318,7 +340,53 @@ tem "motivo: pasta trocada" "^numih-sync: erro: lib: $HX/mod/lib não é mais a 
 mkdir -p "$T/home-pre/mod/lib"; echo meu > "$T/home-pre/mod/lib/meu.txt"
 espera_rc "mod com pasta preexistente falha" 1 env NUMIH_HOME="$T/home-pre" "$SYNC" mod lib
 grep -q clonando "$T/out" && falha "tentou clonar na pasta preexistente" || ok "não clona na pasta preexistente"
+tem "motivo: pasta preexistente não é repositório" "^numih-sync: erro: $T/home-pre/mod/lib existe mas não é repositório git$"
 [ "$(cat "$T/home-pre/mod/lib/meu.txt" 2>/dev/null)" = meu ] && ok "pasta preexistente intacta" || falha "mexeu na pasta preexistente"
+# Corrida na pasta vazia: ela ganha conteúdo entre a checagem e a remoção. Um
+# ls falso que sempre diz «vazia» simula isso; o rmdir (só apaga diretório
+# vazio) é a segunda barreira e nada com conteúdo é apagado.
+mkdir -p "$T/shim-ls"; printf '#!/bin/sh\nexit 0\n' > "$T/shim-ls/ls"; chmod 0755 "$T/shim-ls/ls"
+espera_rc "pasta que deixou de estar vazia não é apagada" 1 env PATH="$T/shim-ls:$PATH" NUMIH_HOME="$T/home-pre" "$SYNC" mod lib
+tem "motivo: não conseguiu remover a pasta «vazia»" "^numih-sync: erro: lib: não consegui remover a pasta vazia $T/home-pre/mod/lib \(sobra de um clone interrompido\); apague-a e rode de novo$"
+[ "$(cat "$T/home-pre/mod/lib/meu.txt" 2>/dev/null)" = meu ] && ok "pasta com conteúdo intacta (corrida)" || falha "apagou pasta com conteúdo (corrida)"
+
+# apagar_parcial isolado: cada guarda sozinha. O trecho das funções é extraído
+# do próprio script (as mutações valem ali) e recebe um id que bate com o
+# caminho, para que só a guarda testada possa recusar. Devolve 0 quando a
+# pasta não existe mais e 1 quando ela ficou.
+FUNCS="$(awk '/^(erro|info)\(\) \{.*\}$/ { print; next } /^(dentro_de_casa|apagar_parcial)\(\) \{$/ { f = 1 } f { print } f && /^\}$/ { f = 0 }' "$SYNC")"
+case "$FUNCS" in *"apagar_parcial()"*"dentro_de_casa()"*|*"dentro_de_casa()"*"apagar_parcial()"*) ok "funções da limpeza extraídas do script" ;; *) falha "não consegui extrair apagar_parcial e dentro_de_casa" ;; esac
+AH="$(realpath -m "$T/home-ap")"; mkdir -p "$AH" "$T/fora-ap/d"
+apagar() { # caminho, id
+  bash -c "$FUNCS"'
+    NUMIH_HOME="$1"; apagar_parcial lib "$2" "$3"' _ "$AH" "$1" "$2"
+}
+id_de() { stat -c '%d:%i' -- "$1"; }
+# (a) a pasta do próprio clone: apagada, rc 0
+mkdir -p "$AH/certa/.git"; echo x > "$AH/certa/.git/parcial"
+espera_rc "apagar_parcial apaga a pasta do clone" 0 apagar "$AH/certa" "$(id_de "$AH/certa")"
+tem "apagar_parcial: informa a remoção" "^lib: pasta parcial do clone removida \($AH/certa\)$"
+[ ! -e "$AH/certa" ] && ok "apagar_parcial: pasta do clone apagada" || falha "apagar_parcial: pasta do clone ficou"
+espera_rc "apagar_parcial: pasta já ausente, rc 0" 0 apagar "$AH/certa" 0:0
+# (b) link simbólico para uma pasta dentro de casa, com o id do próprio link
+mkdir -p "$AH/alvo"; echo dado > "$AH/alvo/dado"; ln -s "$AH/alvo" "$AH/link"
+espera_rc "apagar_parcial recusa link simbólico" 1 apagar "$AH/link" "$(id_de "$AH/link")"
+tem "apagar_parcial: motivo (link)" "^numih-sync: erro: lib: $AH/link não é mais a pasta criada por este clone; não a apago$"
+[ -L "$AH/link" ] && [ "$(cat "$AH/alvo/dado")" = dado ] && ok "apagar_parcial: link e alvo intactos" || falha "apagar_parcial: apagou o link ou o alvo"
+# (c) arquivo comum (não diretório), com o id dele
+echo arq > "$AH/arquivo"
+espera_rc "apagar_parcial recusa o que não é diretório" 1 apagar "$AH/arquivo" "$(id_de "$AH/arquivo")"
+[ "$(cat "$AH/arquivo" 2>/dev/null)" = arq ] && ok "apagar_parcial: arquivo intacto" || falha "apagar_parcial: apagou um arquivo"
+# (d) pasta fora de casa por um pai que é link (mesmo inode, -d verdadeiro)
+echo fora > "$T/fora-ap/d/fora"; ln -s "$T/fora-ap" "$AH/mod"
+espera_rc "apagar_parcial recusa pasta fora de casa" 1 apagar "$AH/mod/d" "$(id_de "$AH/mod/d")"
+[ "$(cat "$T/fora-ap/d/fora" 2>/dev/null)" = fora ] && ok "apagar_parcial: pasta de fora intacta" || falha "apagar_parcial: apagou fora de casa"
+# (e) rm que falha (subpasta sem escrita): avisa e devolve 1
+mkdir -p "$AH/dura/sub"; echo f > "$AH/dura/sub/f"; chmod 0555 "$AH/dura/sub"
+espera_rc "apagar_parcial: rm que falha devolve 1" 1 apagar "$AH/dura" "$(id_de "$AH/dura")"
+tem "apagar_parcial: avisa que não conseguiu apagar" "^numih-sync: erro: lib: não consegui apagar a pasta parcial do clone \($AH/dura\); apague-a antes de rodar de novo$"
+grep -q "pasta parcial do clone removida" "$T/out" && falha "apagar_parcial: disse «removida» com o rm falhando" || ok "apagar_parcial: não diz «removida» com o rm falhando"
+chmod 0755 "$AH/dura/sub"
 espera_rc "sync inclui mod/" 0 "$SYNC" sync
 grep -q "^lib: em dia" "$T/out" && ok "mod/lib sincronizado no sync" || falha "mod/lib fora do sync"
 
@@ -344,6 +412,10 @@ for v in x 0 00 -5 1.5; do
 done
 # Inteiro maior que zero, com zero à esquerda: aceito (é o que a mensagem diz).
 espera_rc "aceita NUMIH_FETCH_TIMEOUT=05" 0 env NUMIH_FETCH_TIMEOUT=05 "$SYNC" mod lib
+# Só com o algarismo 9 (a lista do dígito não nulo precisa ir até o 9).
+for v in 9 99 09; do
+  espera_rc "aceita NUMIH_FETCH_TIMEOUT=$v" 0 env NUMIH_FETCH_TIMEOUT="$v" "$SYNC" mod lib
+done
 [ ! -e "$T/home-lw" ] && ok "nada criado com NUMIH_FETCH_TIMEOUT inválido" || falha "criou o NUMIH_HOME com NUMIH_FETCH_TIMEOUT inválido"
 # HOME falso dentro de $T: a guarda nunca é exercitada contra o HOME real.
 mkdir -p "$T/falso"
@@ -563,6 +635,19 @@ mkdir -p "$T/home-link2" "$T/fora-mod"; ln -s "$T/fora-mod" "$T/home-link2/mod"
 espera_rc "mod recusa clonar através de link para fora" 1 env NUMIH_HOME="$T/home-link2" "$SYNC" mod lib
 tem "motivo: destino do clone fora" "lib: $T/home-link2/mod/lib resolve para fora de $T/home-link2"
 [ -z "$(ls -A "$T/fora-mod")" ] && ok "nada clonado fora" || { falha "clonou fora"; ls -la "$T/fora-mod"; }
+# (g) Pasta vazia só conta como sobra de clone interrompido (e é removida) se
+#     for diretório de verdade dentro de casa. mod/ é link para fora com uma
+#     pasta vazia lá: recusada, e a pasta de fora fica.
+mkdir -p "$T/home-link3" "$T/fora-mod3/lib"; ln -s "$T/fora-mod3" "$T/home-link3/mod"
+espera_rc "mod recusa pasta vazia fora de casa" 1 env NUMIH_HOME="$T/home-link3" "$SYNC" mod lib
+tem "motivo: pasta vazia fora de casa" "lib: $T/home-link3/mod/lib resolve para fora de $T/home-link3"
+[ -d "$T/fora-mod3/lib" ] && ok "pasta vazia de fora não foi removida" || falha "removeu a pasta vazia de fora de casa"
+# (h) mod/lib é link simbólico (dentro de casa) para uma pasta vazia: não é
+#     sobra de clone; nem o link nem o alvo são tocados.
+mkdir -p "$T/home-link4/mod" "$T/home-link4/vazia"; ln -s "$T/home-link4/vazia" "$T/home-link4/mod/lib"
+espera_rc "mod recusa link para pasta vazia" 1 env NUMIH_HOME="$T/home-link4" "$SYNC" mod lib
+tem "motivo: link para pasta vazia não é repositório" "^numih-sync: erro: $T/home-link4/mod/lib existe mas não é repositório git$"
+[ -L "$T/home-link4/mod/lib" ] && [ -d "$T/home-link4/vazia" ] && ok "link e pasta vazia intactos" || falha "mexeu no link ou na pasta vazia"
 
 # .lock: link simbólico recusado; link físico nunca truncado.
 mkdir -p "$T/home-lock"
@@ -594,6 +679,11 @@ for op in fetch clone; do
     ok "$op: sempre com --no-recurse-submodules"
   else falha "$op sem --no-recurse-submodules"; grep " $op " "$T/git.log" | head -3; fi
 done
+# Clone parcial (--filter=blob:none): com remotos locais o resultado é o mesmo
+# com ou sem a opção (só muda o que é baixado), então também é estrutural.
+if grep -q " clone " "$T/git.log" && ! grep " clone " "$T/git.log" | grep -v -- "--filter=blob:none" >/dev/null; then
+  ok "clone: sempre parcial (--filter=blob:none)"
+else falha "clone sem --filter=blob:none"; grep " clone " "$T/git.log" | head -3; fi
 # ssh configurado pelo usuário é respeitado
 git config --global core.sshCommand "ssh -F /dev/null"
 rm -f "$T/git.log"
@@ -677,6 +767,71 @@ if vivo "$PENDURA4" && ssh_vivo; then
 else falha "a busca com ssh que ignora TERM (kill -9) não começou"; cat "$T/out-k9b"; kill -9 "$pk9" 2>/dev/null || true; fi
 mata_sobras "$PENDURA4"
 git -C "$NUMIH_HOME/cursor" config remote.origin.url "$T/remotos/cursor.git"
+
+# Sinal no próprio numih-sync durante um clone lento (remoto que pendura).
+# TERM, HUP e KILL por PID matam o script na hora; o vigia (avisado pelo
+# setpriv --pdeathsig) interrompe o git, que limpa o que baixou, mas a pasta
+# criada pelo script fica, vazia. Antes, sync, check e mod falhavam nela
+# («existe mas não é repositório git») até alguém apagá-la à mão. Agora o
+# check aponta a pasta vazia e o sync (ou o mod) a remove e clona de novo.
+PENDURA5="$((PENDURA + 4))"; SOBRAS+=("$PENDURA5")
+git config --global url."ext::sh -c sleep% $PENDURA5 ".insteadOf "pendura5://x/"
+# algum processo (fora o próprio grep) com o caminho nos argumentos
+com_caminho() { ps -eo args= | grep -F -- "$1" | grep -qv '^grep '; }
+for sig in TERM HUP KILL; do
+  HS="$T/home-sinal-$sig"
+  NUMIH_HOME="$HS" NUMIH_REMOTE_BASE=pendura5://x NUMIH_FETCH_TIMEOUT=200 "$SYNC" mod lib >"$T/out-sinal" 2>&1 & ps5=$!
+  for _ in $(seq 200); do vivo "$PENDURA5" && break; sleep 0.05; done
+  if vivo "$PENDURA5"; then
+    kill -"$sig" "$ps5"; rcs=0; wait "$ps5" || rcs=$?
+    # o git termina a própria limpeza e o vigia derruba o grupo
+    for _ in $(seq 300); do com_caminho "$HS/mod/lib" || vivo "$PENDURA5" || break; sleep 0.05; done
+    case "$sig" in TERM) esp=143 ;; HUP) esp=129 ;; KILL) esp=137 ;; esac
+    [ "$rcs" = "$esp" ] && ok "$sig no numih-sync durante o clone: morreu pelo sinal (rc $rcs)" || falha "$sig no numih-sync: rc $rcs, esperado $esp"
+    if vivo "$PENDURA5" || com_caminho "$HS/mod/lib"; then falha "$sig: o clone ficou órfão"; else ok "$sig: nada sobrou do clone"; fi
+    [ -d "$HS/mod/lib" ] && [ ! -L "$HS/mod/lib" ] && [ -z "$(ls -A "$HS/mod/lib")" ] \
+      && ok "$sig: sobra reproduzida (mod/lib vazia)" || { falha "$sig: mod/lib não ficou como pasta vazia"; ls -la "$HS/mod" "$HS/mod/lib"; }
+    espera_rc "$sig: check aponta a pasta vazia" 1 env NUMIH_HOME="$HS" NUMIH_REMOTE_BASE="$T/remotos" "$SYNC" check --no-fetch
+    tem "$sig: motivo no check" "^numih-sync: erro: lib: $HS/mod/lib é uma pasta vazia \(sobra de um clone interrompido\); rode: numih-sync sync$"
+    grep -q "não é repositório git" "$T/out" && falha "$sig: check ainda diz «não é repositório git»" || ok "$sig: check não diz «não é repositório git»"
+    if [ "$sig" = KILL ]; then
+      espera_rc "$sig: mod lib seguinte funciona" 0 env NUMIH_HOME="$HS" NUMIH_REMOTE_BASE="$T/remotos" "$SYNC" mod lib
+    else
+      espera_rc "$sig: sync seguinte funciona" 0 env NUMIH_HOME="$HS" NUMIH_REMOTE_BASE="$T/remotos" "$SYNC" sync
+    fi
+    tem "$sig: informa a pasta vazia removida" "^lib: pasta vazia de um clone interrompido removida \($HS/mod/lib\); clonando de novo$"
+    copia_limpa_na_main "$sig: mod/lib clonado de novo, na main" "$HS/mod/lib"
+    espera_rc "$sig: sync depois" 0 env NUMIH_HOME="$HS" NUMIH_REMOTE_BASE="$T/remotos" "$SYNC" sync
+    espera_rc "$sig: check em dia depois" 0 env NUMIH_HOME="$HS" NUMIH_REMOTE_BASE="$T/remotos" "$SYNC" check
+  else falha "$sig: o clone lento não começou"; cat "$T/out-sinal"; kill -9 "$ps5" 2>/dev/null || true; fi
+  mata_sobras "$PENDURA5"
+done
+# INT: o bash, esperando um comando em primeiro plano, só decide sobre o INT
+# quando o comando termina, e só morre se o comando também morreu por INT.
+# (a) Ctrl-C (INT ao grupo do numih-sync): o vigia recebe o INT e interrompe o
+#     clone; o script segue, o clone conta como falho e a pasta é apagada na
+#     hora. (b) INT só no PID do script: o clone segue até o prazo, e a pasta
+#     também é apagada. Em segundo plano sem controle de tarefas o bash nasce
+#     ignorando INT; o env --default-signal devolve o comportamento normal.
+for modo in grupo pid; do
+  HS="$T/home-sinal-INT-$modo"; ini=$SECONDS
+  if [ "$modo" = grupo ]; then prazo5=200; else prazo5=2; fi
+  setsid env --default-signal=INT NUMIH_HOME="$HS" NUMIH_REMOTE_BASE=pendura5://x NUMIH_FETCH_TIMEOUT="$prazo5" "$SYNC" mod lib >"$T/out" 2>&1 & ps5=$!
+  for _ in $(seq 200); do vivo "$PENDURA5" && break; sleep 0.05; done
+  if vivo "$PENDURA5"; then
+    if [ "$modo" = grupo ]; then kill -INT -- "-$ps5"; else kill -INT "$ps5"; fi
+    rcs=0; wait "$ps5" || rcs=$?; dur=$((SECONDS - ini))
+    [ "$rcs" = 1 ] && ok "INT ($modo): o clone conta como falho (rc 1, $dur s)" || { falha "INT ($modo): rc $rcs"; cat "$T/out"; }
+    [ "$dur" -lt 20 ] && ok "INT ($modo): terminou em $dur s" || falha "INT ($modo): levou $dur s"
+    tem "INT ($modo): pasta apagada na hora" "^lib: pasta parcial do clone removida \($HS/mod/lib\)$"
+    [ ! -e "$HS/mod/lib" ] && ok "INT ($modo): não sobra mod/lib" || falha "INT ($modo): sobrou mod/lib"
+    for _ in $(seq 100); do vivo "$PENDURA5" || break; sleep 0.05; done
+    vivo "$PENDURA5" && falha "INT ($modo): o clone ficou órfão" || ok "INT ($modo): nada sobrou do clone"
+    espera_rc "INT ($modo): mod lib seguinte funciona" 0 env NUMIH_HOME="$HS" NUMIH_REMOTE_BASE="$T/remotos" "$SYNC" mod lib
+  else falha "INT ($modo): o clone lento não começou"; kill -9 "$ps5" 2>/dev/null || true; fi
+  mata_sobras "$PENDURA5"
+done
+git config --global --unset url."ext::sh -c sleep% $PENDURA5 ".insteadOf
 
 # O vigia do com_prazo, isolado: o trecho entre «bash -c '» e «' numih-sync-prazo»
 # é extraído do próprio script (as mutações valem aqui) e rodado com os
