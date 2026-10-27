@@ -43,12 +43,14 @@ git config --global core.hooksPath "$T/ganchos-do-usuario"
 # git observado: um git falso no PATH (só quando o teste pede) registra o
 # ambiente de cada chamada (pedido de senha, ssh, trava fd 9 aberta) e, se
 # NUMIH_TESTE_FINGE_ANCESTRAL=1, finge que `merge-base --is-ancestor` passou.
+# Cada linha termina com o diretório corrente (pwd=), para que um git rodado
+# dentro de uma pasta, sem -C, também apareça no registro.
 REAL_GIT="$(command -v git)"
 mkdir -p "$T/shim"
 cat > "$T/shim/git" <<EOF
 #!/bin/sh
 if [ -e /proc/\$\$/fd/9 ]; then fd9=aberto; else fd9=fechado; fi
-printf 'prompt=%s askpass=%s ssh=%s fd9=%s args=%s\\n' "\${GIT_TERMINAL_PROMPT-}" "\${GIT_ASKPASS-}" "\${GIT_SSH_COMMAND-}" "\$fd9" "\$*" >> "$T/git.log"
+printf 'prompt=%s askpass=%s ssh=%s fd9=%s args=%s pwd=%s\\n' "\${GIT_TERMINAL_PROMPT-}" "\${GIT_ASKPASS-}" "\${GIT_SSH_COMMAND-}" "\$fd9" "\$*" "\$PWD" >> "$T/git.log"
 if [ -n "\${NUMIH_TESTE_IGNORA_TERM-}" ]; then
   # só a busca da cópia cursor (as outras seguem normais)
   case " \$* " in *"/cursor -c "*" fetch "*) trap '' TERM; exec sleep "\$NUMIH_TESTE_IGNORA_TERM" ;; esac
@@ -395,20 +397,27 @@ grep -q "pasta parcial do clone removida" "$T/out" && falha "apagar_parcial: dis
 chmod 0755 "$AH/dura/sub"
 
 # guarda_copia isolada com pasta vazia (sobra de clone interrompido): recusa e
-# PARA ali, com rc 1 e uma única linha de erro. Se seguisse, o git rodaria na
-# pasta vazia (fatal: not a git repository) e a checagem da origin diria
-# «origin é ''». Funções extraídas do próprio script (as mutações valem ali).
+# PARA ali, com rc 1 e uma única linha de erro, sem rodar git nela. O git
+# falso do teste ($T/shim/git) registra em $T/git.log cada chamada com os
+# argumentos (o g() passa a pasta no -C); o controle com um repositório de
+# verdade prova que a guarda extraída roda pelo git falso. Funções extraídas
+# do próprio script (as mutações valem ali).
 FUNCS_G="$(awk '/^(erro|info|g)\(\) \{.*\}$/ { print; next } /^GIT_OPTS=/ { print; next } /^(dentro_de_casa|pasta_vazia|guarda_copia)\(\) \{$/ { f = 1 } f { print } f && /^\}$/ { f = 0 }' "$SYNC")"
 case "$FUNCS_G" in *"guarda_copia()"*) case "$FUNCS_G" in *"pasta_vazia()"*) case "$FUNCS_G" in *"GIT_OPTS="*"g()"*) ok "funções da guarda extraídas do script" ;; *) falha "não consegui extrair GIT_OPTS e g" ;; esac ;; *) falha "não consegui extrair pasta_vazia" ;; esac ;; *) falha "não consegui extrair guarda_copia" ;; esac
 mkdir -p "$AH/vazia"
 guardar() { # caminho
-  bash -c "$FUNCS_G"'
+  PATH="$T/shim:$PATH" bash -c "$FUNCS_G"'
     NUMIH_HOME="$1"; guarda_copia lib "$2"' _ "$AH" "$1"
 }
+git init -q "$AH/repo-ok"
+rm -f "$T/git.log"
+espera_rc "guarda_copia: controle, repositório de verdade aceito" 0 guardar "$AH/repo-ok"
+grep -qF -- "-C $AH/repo-ok " "$T/git.log" 2>/dev/null && ok "guarda_copia: controle, o git falso registra o git da guarda" || { falha "guarda_copia: controle, o git da guarda não passou pelo git falso"; cat "$T/git.log" 2>/dev/null || :; }
+rm -rf "$AH/repo-ok" "$T/git.log"
 espera_rc "guarda_copia: pasta vazia recusada com rc 1 exato" 1 guardar "$AH/vazia"
 tem "guarda_copia: motivo (pasta vazia)" "^numih-sync: erro: lib: $AH/vazia é uma pasta vazia \(sobra de um clone interrompido\); rode: numih-sync sync$"
 [ "$(wc -l < "$T/out")" = 1 ] && ok "guarda_copia: para na pasta vazia (uma só linha de saída)" || { falha "guarda_copia: seguiu depois da pasta vazia"; cat "$T/out"; }
-grep -q 'fatal:' "$T/out" && falha "guarda_copia: rodou git na pasta vazia" || ok "guarda_copia: nenhum git rodou na pasta vazia"
+if [ -e "$T/git.log" ]; then falha "guarda_copia: rodou git na pasta vazia"; cat "$T/git.log"; else ok "guarda_copia: nenhum git rodou na pasta vazia"; fi
 [ -d "$AH/vazia" ] && [ -z "$(ls -A "$AH/vazia")" ] && ok "guarda_copia: pasta vazia intacta" || falha "guarda_copia: mexeu na pasta vazia"
 rmdir "$AH/vazia"
 
@@ -829,12 +838,16 @@ for sig in TERM HUP KILL; do
     if vivo "$PENDURA5" || com_caminho "$HS/mod/lib"; then falha "$sig: o clone ficou órfão"; else ok "$sig: nada sobrou do clone"; fi
     [ -d "$HS/mod/lib" ] && [ ! -L "$HS/mod/lib" ] && [ -z "$(ls -A "$HS/mod/lib")" ] \
       && ok "$sig: sobra reproduzida (mod/lib vazia)" || { falha "$sig: mod/lib não ficou como pasta vazia"; ls -la "$HS/mod" "$HS/mod/lib"; }
-    espera_rc "$sig: check aponta a pasta vazia" 1 env NUMIH_HOME="$HS" NUMIH_REMOTE_BASE="$T/remotos" "$SYNC" check --no-fetch
+    rm -f "$T/git.log"
+    espera_rc "$sig: check aponta a pasta vazia" 1 env PATH="$T/shim:$PATH" NUMIH_HOME="$HS" NUMIH_REMOTE_BASE="$T/remotos" "$SYNC" check --no-fetch
     tem "$sig: motivo no check" "^numih-sync: erro: lib: $HS/mod/lib é uma pasta vazia \(sobra de um clone interrompido\); rode: numih-sync sync$"
     grep -q "não é repositório git" "$T/out" && falha "$sig: check ainda diz «não é repositório git»" || ok "$sig: check não diz «não é repositório git»"
-    # o check para na pasta vazia: nenhum git roda nela e só uma linha a cita
-    grep -q 'fatal:' "$T/out" && falha "$sig: check rodou git na pasta vazia" || ok "$sig: check não roda git na pasta vazia"
-    grep -q "origin é" "$T/out" && falha "$sig: check seguiu até a origin na pasta vazia" || ok "$sig: check não segue até a origin"
+    # o check para na pasta vazia: nenhum git roda nela (o git falso registra
+    # cada chamada; o controle prova que o git do check passa por ele, e o
+    # check final, com a cópia refeita, prova que o mesmo grep acha o git
+    # que roda nela) e só uma linha a cita
+    [ -s "$T/git.log" ] && ok "$sig: controle, o git falso registra o git do check" || falha "$sig: controle, o git do check não passou pelo git falso"
+    grep -qF -- "$HS/mod/lib" "$T/git.log" 2>/dev/null && { falha "$sig: check rodou git na pasta vazia"; grep -F -- "$HS/mod/lib" "$T/git.log"; } || ok "$sig: check não roda git na pasta vazia"
     [ "$(grep -cF "$HS/mod/lib" "$T/out")" = 1 ] && ok "$sig: check cita a pasta vazia uma só vez" || { falha "$sig: check cita a pasta vazia mais de uma vez"; cat "$T/out"; }
     if [ "$sig" = KILL ]; then
       espera_rc "$sig: mod lib seguinte funciona" 0 env NUMIH_HOME="$HS" NUMIH_REMOTE_BASE="$T/remotos" "$SYNC" mod lib
@@ -844,7 +857,9 @@ for sig in TERM HUP KILL; do
     tem "$sig: informa a pasta vazia removida" "^lib: pasta vazia de um clone interrompido removida \($HS/mod/lib\); clonando de novo$"
     copia_limpa_na_main "$sig: mod/lib clonado de novo, na main" "$HS/mod/lib"
     espera_rc "$sig: sync depois" 0 env NUMIH_HOME="$HS" NUMIH_REMOTE_BASE="$T/remotos" "$SYNC" sync
-    espera_rc "$sig: check em dia depois" 0 env NUMIH_HOME="$HS" NUMIH_REMOTE_BASE="$T/remotos" "$SYNC" check
+    rm -f "$T/git.log"
+    espera_rc "$sig: check em dia depois" 0 env PATH="$T/shim:$PATH" NUMIH_HOME="$HS" NUMIH_REMOTE_BASE="$T/remotos" "$SYNC" check
+    grep -qF -- "-C $HS/mod/lib " "$T/git.log" 2>/dev/null && ok "$sig: controle, o git do check na cópia refeita aparece no registro" || { falha "$sig: controle, o git do check na cópia refeita não aparece no registro"; cat "$T/git.log" 2>/dev/null || :; }
   else falha "$sig: o clone lento não começou"; cat "$T/out-sinal"; kill -9 "$ps5" 2>/dev/null || true; fi
   mata_sobras "$PENDURA5"
 done

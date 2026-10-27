@@ -85,6 +85,9 @@ E6	bin/numih-sync	sync	if ! rmdir -- "$dir" 2>/dev/null; then	if ! rm -rf -- "$d
 P5	bin/numih-sync	sync	      [ -d "$r" ] || continue\n	
 P6	bin/numih-sync	sync	clone interrompido); rode: numih-sync sync"; return 1	clone interrompido); rode: numih-sync sync"; return 0
 P12	bin/numih-sync	sync	if rm -rf -- "$dir"; then	if rm -rf -- "$dir" "$dir.bak"; then
+G1	bin/numih-sync	sync	  if pasta_vazia "$dir"; then\n    erro	  g "$dir" rev-parse --git-dir >/dev/null 2>&1 || :\n  if pasta_vazia "$dir"; then\n    erro
+G2	bin/numih-sync	sync	  integra "$nome" "$dir" || return 1\n  if [ "$fetch" = 1 ]	  g "$dir" rev-parse --git-dir >/dev/null 2>&1 || :\n  integra "$nome" "$dir" || return 1\n  if [ "$fetch" = 1 ]
+G3	bin/numih-sync	sync	  if pasta_vazia "$dir"; then\n    erro	  (cd -- "$dir" && git rev-parse --git-dir >/dev/null 2>&1 9>&-) || :\n  if pasta_vazia "$dir"; then\n    erro
 TABELA
 )"
 
