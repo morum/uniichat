@@ -287,11 +287,12 @@ export namespace Chat {
     Memory.pump(mem);
     Chat.progress(chat);
     // Unii's turn cut by the stop, resumed: its end answers the threads
-    // that wait for Unii (Chat.talked)
-    const cut = cut_work.includes(TURN);
+    // that wait for Unii (Chat.talked). Chat.resume takes its note at
+    // once (Chat.take starts the turn: chat.busy), so Chat.orphans, which
+    // checks chat.busy and chat.wait, leaves those threads to that turn
     Chat.resume(chat, cut_work).finally(() => Chat.change(chat)).catch((err) => console.error("unii: resuming the chat: " + (err?.message ?? err)));
     const back = Chat.back(chat);
-    Chat.orphans(chat, cut || back);
+    Chat.orphans(chat, back);
     // AGENTES.md as the server starts: an agent the server before left at
     // work, and not resumed, is said cut (after the boot, not in its way)
     setTimeout(() => Chat.agents_md(chat), 0);
