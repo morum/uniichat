@@ -251,6 +251,9 @@ test("a question without a task gets one of Unii's (P112): no fields, its next s
   expect(u.detail).toContain("nº 4823");
   expect(u.detail).toContain("Mensagem de origem: nº 4830, resposta do Unii, que começa assim: “CI verde. Aplico em hom?”.\nFrases a decidir (pergunta real ou alarme falso):\n• “Aplico em hom?”");
   expect(u.detail.indexOf("nº 4823")).toBeLessThan(u.detail.indexOf("nº 4830"));
+  // its head once, the task's own: not taken for an older record
+  expect(u.detail.split(T.ASKED_HEAD)).toHaveLength(2);
+  expect(u.detail).not.toContain("Registro anterior");
   expect(s.tasks.filter((x) => x.state === "open")).toHaveLength(1);
   // a task of Unii's made: not the user's question's
   const later = now + 60e3;
@@ -290,9 +293,20 @@ test("each sentence of the task has its origin: no sentence alone, even as the d
   const s2 = T.tasks_load(dir2);
   const v = T.task_asked(s2, ["Mesclo?"], now) as T.Task;
   expect(v.detail).toContain("Mensagem de origem: a última resposta do Unii no turno (número não disponível).");
-  // when it was logged, in the server's local time
-  const w = T.task_asked(s2, ["Aplico?"], now, { id: 9, text: "Aplico?", date: new Date(2026, 9, 27, 9, 5).toISOString() }) as T.Task;
-  expect(w.detail).toContain("Mensagem de origem: nº 9, resposta do Unii, em 27/10 às 09:05, que começa assim: “Aplico?”.");
+  // when it was logged, in the server's local time (bun test runs in
+  // UTC: the zone set here, so local and UTC differ)
+  const TZ = process.env.TZ;
+  process.env.TZ = "America/Sao_Paulo";
+  try {
+    const w = T.task_asked(s2, ["Aplico?"], now, { id: 9, text: "Aplico?", date: "2026-10-27T12:05:00.000Z" }) as T.Task;
+    expect(w.detail).toContain("Mensagem de origem: nº 9, resposta do Unii, em 27/10 às 09:05, que começa assim: “Aplico?”.");
+  } finally {
+    if (TZ === undefined) {
+      delete process.env.TZ;
+    } else {
+      process.env.TZ = TZ;
+    }
+  }
   T.tasks_forget();
   fs.rmSync(dir, { recursive: true, force: true });
   fs.rmSync(dir2, { recursive: true, force: true });
