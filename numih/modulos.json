@@ -1,0 +1,2620 @@
+{
+  "workspace_sha": "762a30b8e6e57694732ed4910127d1ad9443558f",
+  "fonte_portas": "Numih/devtools@0e28e46240a5:infra/ports.yaml",
+  "modulos": [
+    {
+      "nome": ".dotfiles",
+      "caminho": ".dotfiles",
+      "categoria": "org",
+      "camadas": [],
+      "repo": {
+        "owner": "Numih",
+        "nome": ".dotfiles",
+        "url": "https://github.com/Numih/.dotfiles",
+        "canonico": "Numih/.dotfiles",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Vim Script",
+        "descricao": null
+      },
+      "gitlink": "bb98966355ed9d3d784bbfbe2d69c91602099edd",
+      "portas": []
+    },
+    {
+      "nome": ".github",
+      "caminho": ".github",
+      "categoria": "org",
+      "camadas": [],
+      "repo": {
+        "owner": "Numih",
+        "nome": ".github",
+        "url": "https://github.com/Numih/.github",
+        "canonico": "Numih/.github",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": null,
+        "descricao": null
+      },
+      "gitlink": "614292fae44462aca1bfa5056a42284b91933f5e",
+      "portas": []
+    },
+    {
+      "nome": "act-analyse-dependencies",
+      "caminho": "actions/act-analyse-dependencies",
+      "categoria": "action",
+      "camadas": [],
+      "repo": {
+        "owner": "Numih",
+        "nome": "act-analyse-dependencies",
+        "url": "https://github.com/Numih/act-analyse-dependencies",
+        "canonico": "Numih/act-analyse-dependencies",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": null
+      },
+      "gitlink": "d10f90b8e400bfcfba9990eb26a5462e9a23cdaa",
+      "portas": []
+    },
+    {
+      "nome": "act-create-issue",
+      "caminho": "actions/act-create-issue",
+      "categoria": "action",
+      "camadas": [],
+      "repo": {
+        "owner": "Numih",
+        "nome": "act-create-issue",
+        "url": "https://github.com/Numih/act-create-issue",
+        "canonico": "Numih/act-create-issue",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "JavaScript",
+        "descricao": null
+      },
+      "gitlink": "2b8cfaadfaa39f5aa7ec44a89cb3beb953f030f5",
+      "portas": []
+    },
+    {
+      "nome": "act-create-pull-request",
+      "caminho": "actions/act-create-pull-request",
+      "categoria": "action",
+      "camadas": [],
+      "repo": {
+        "owner": "Numih",
+        "nome": "act-create-pull-request",
+        "url": "https://github.com/Numih/act-create-pull-request",
+        "canonico": "Numih/act-create-pull-request",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "TypeScript",
+        "descricao": "A GitHub action to create a pull request for changes to your repository in the actions workspace"
+      },
+      "gitlink": "5e914681df9dc83aa4e4905692ca88beb2f9e91f",
+      "portas": []
+    },
+    {
+      "nome": "act-generate-graphql-schema",
+      "caminho": "actions/act-generate-graphql-schema",
+      "categoria": "action",
+      "camadas": [],
+      "repo": {
+        "owner": "Numih",
+        "nome": "act-generate-graphql-schema",
+        "url": "https://github.com/Numih/act-generate-graphql-schema",
+        "canonico": "Numih/act-generate-graphql-schema",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "JavaScript",
+        "descricao": null
+      },
+      "gitlink": "cda7d4e0a6b9d380a10be4d0a3137f273013f9d2",
+      "portas": []
+    },
+    {
+      "nome": "act-pnpm-build",
+      "caminho": "actions/act-pnpm-build",
+      "categoria": "action",
+      "camadas": [],
+      "repo": {
+        "owner": "Numih",
+        "nome": "act-pnpm-build",
+        "url": "https://github.com/Numih/act-pnpm-build",
+        "canonico": "Numih/act-pnpm-build",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": null,
+        "descricao": null
+      },
+      "gitlink": "f30907ce052de578e37a59ea17a8da96cb06193f",
+      "portas": []
+    },
+    {
+      "nome": "act-pr-comment",
+      "caminho": "actions/act-pr-comment",
+      "categoria": "action",
+      "camadas": [],
+      "repo": {
+        "owner": "Numih",
+        "nome": "act-pr-comment",
+        "url": "https://github.com/Numih/act-pr-comment",
+        "canonico": "Numih/act-pr-comment",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Ruby",
+        "descricao": "Action that makes a pr comment from a file artifact"
+      },
+      "gitlink": "0489ede601efe889ad97935bdca87784b608a60b",
+      "portas": []
+    },
+    {
+      "nome": "act-publish-graphql-schema",
+      "caminho": "actions/act-publish-graphql-schema",
+      "categoria": "action",
+      "camadas": [],
+      "repo": {
+        "owner": "Numih",
+        "nome": "act-publish-graphql-schema",
+        "url": "https://github.com/Numih/act-publish-graphql-schema",
+        "canonico": "Numih/act-publish-graphql-schema",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": null,
+        "descricao": null
+      },
+      "gitlink": "705206ddec25b2d12ac500d125fad3d7a4299749",
+      "portas": []
+    },
+    {
+      "nome": "act-remove-stale-branches",
+      "caminho": "actions/act-remove-stale-branches",
+      "categoria": "action",
+      "camadas": [],
+      "repo": {
+        "owner": "Numih",
+        "nome": "act-remove-stale-branches",
+        "url": "https://github.com/Numih/act-remove-stale-branches",
+        "canonico": "Numih/act-remove-stale-branches",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": null,
+        "descricao": "Github action to remove stale branches"
+      },
+      "gitlink": "0d111753d2ee0127621d14bc6c0b1bda8a63cd0e",
+      "portas": []
+    },
+    {
+      "nome": "act-yarn-build",
+      "caminho": "actions/act-yarn-build",
+      "categoria": "action",
+      "camadas": [],
+      "repo": {
+        "owner": "Numih",
+        "nome": "act-yarn-build",
+        "url": "https://github.com/Numih/act-yarn-build",
+        "canonico": "Numih/act-yarn-build",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": null,
+        "descricao": null
+      },
+      "gitlink": "e57e8099bcf268fbc7a149fd3e5facedcd443a6e",
+      "portas": []
+    },
+    {
+      "nome": "components",
+      "caminho": "frontend/components",
+      "categoria": "frontend",
+      "camadas": [
+        "frontend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "components",
+        "url": "https://github.com/Numih/components",
+        "canonico": "Numih/components",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "TypeScript",
+        "descricao": null
+      },
+      "gitlink": "81f853173eb6baa8a0a7f40ee6bb51da302f0d66",
+      "portas": [
+        {
+          "nome": "storybook",
+          "secao": "tools",
+          "descricao": "Storybook (roda exclusivamente em dev local, nunca em Docker)",
+          "portas": {
+            "local_dev": 6006
+          }
+        },
+        {
+          "nome": "storybook-test-server",
+          "secao": "tools",
+          "descricao": "Servidor estatico do storybook-static usado por test:storybook:ci no components",
+          "portas": {
+            "local_dev": 6007
+          }
+        }
+      ]
+    },
+    {
+      "nome": "landing-page",
+      "caminho": "frontend/landing-page",
+      "categoria": "frontend",
+      "camadas": [
+        "frontend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "numih.com",
+        "url": "https://github.com/Numih/numih.com",
+        "canonico": "Numih/numih.com",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "TypeScript",
+        "descricao": null
+      },
+      "gitlink": "6e1c541382210d8d1694bc68ab929065967b6af6",
+      "portas": []
+    },
+    {
+      "nome": "nm-ft-root",
+      "caminho": "frontend/nm-ft-root",
+      "categoria": "frontend",
+      "camadas": [
+        "frontend"
+      ],
+      "repo": {
+        "owner": "numih",
+        "nome": "nm-ft-root",
+        "url": "https://github.com/numih/nm-ft-root",
+        "canonico": "Numih/nm-ft-root",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "TypeScript",
+        "descricao": null
+      },
+      "gitlink": "ed782d22052257ee503e1469c67e02ee76ace56e",
+      "portas": [
+        {
+          "nome": "nm-ft-root",
+          "secao": "gateways",
+          "descricao": "Shell frontend (nm-ft-root)",
+          "portas": {
+            "docker_stable": 3000
+          }
+        }
+      ]
+    },
+    {
+      "nome": "infra-tf-numih",
+      "caminho": "infra/infra-tf-numih",
+      "categoria": "infra",
+      "camadas": [],
+      "repo": {
+        "owner": "numih",
+        "nome": "infra-tf-numih",
+        "url": "https://github.com/numih/infra-tf-numih",
+        "canonico": "Numih/infra-tf-numih",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "HCL",
+        "descricao": "Definições de implantação dos módulos que não se encaixam em categorias de estão e são internos do sistema numih."
+      },
+      "gitlink": "d422fd0e23fd70a31ece7bf6928c0dd5c8ef121a",
+      "portas": []
+    },
+    {
+      "nome": "nm-config-hom",
+      "caminho": "infra/nm-config-hom",
+      "categoria": "infra",
+      "camadas": [],
+      "repo": {
+        "owner": "Numih",
+        "nome": "nm-config-hom",
+        "url": "https://github.com/Numih/nm-config-hom",
+        "canonico": "Numih/nm-config-hom",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": null,
+        "descricao": null
+      },
+      "gitlink": "b577577f13e9b3e01c5b8c12501a54592363bda0",
+      "portas": []
+    },
+    {
+      "nome": "nm-config-prod",
+      "caminho": "infra/nm-config-prod",
+      "categoria": "infra",
+      "camadas": [],
+      "repo": {
+        "owner": "Numih",
+        "nome": "nm-config-prod",
+        "url": "https://github.com/Numih/nm-config-prod",
+        "canonico": "Numih/nm-config-prod",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": null,
+        "descricao": null
+      },
+      "gitlink": "bb3e5a1c800ab07b3992de0302fb0861b28a6d8e",
+      "portas": []
+    },
+    {
+      "nome": "terraform-numih-ecs-app",
+      "caminho": "infra/terraform-numih-ecs-app",
+      "categoria": "infra",
+      "camadas": [],
+      "repo": {
+        "owner": "Numih",
+        "nome": "terraform-numih-ecs-app",
+        "url": "https://github.com/Numih/terraform-numih-ecs-app",
+        "canonico": "Numih/terraform-numih-ecs-app",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "HCL",
+        "descricao": null
+      },
+      "gitlink": "79402dab9408c5061f81a333bf22f17cfc8ce7c5",
+      "portas": []
+    },
+    {
+      "nome": "cfg",
+      "caminho": "libs/cfg",
+      "categoria": "lib",
+      "camadas": [
+        "backend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "cfg",
+        "url": "https://github.com/Numih/cfg",
+        "canonico": "Numih/cfg",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": "cfg is a go library for loading and using remote configuration files"
+      },
+      "gitlink": "c2f336ba26c91254904366aee0fda85093f482c0",
+      "portas": []
+    },
+    {
+      "nome": "dp-bk-calculo-financeiro",
+      "caminho": "libs/dp-bk-calculo-financeiro",
+      "categoria": "lib",
+      "camadas": [
+        "backend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "dp-bk-calculo-financeiro",
+        "url": "https://github.com/Numih/dp-bk-calculo-financeiro",
+        "canonico": "Numih/dp-bk-calculo-financeiro",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": null
+      },
+      "gitlink": "2878fcb600c95d5a7e2a5801eb1119299da8245f",
+      "portas": []
+    },
+    {
+      "nome": "dp-bk-crud",
+      "caminho": "libs/dp-bk-crud",
+      "categoria": "lib",
+      "camadas": [
+        "backend"
+      ],
+      "repo": {
+        "owner": "numih",
+        "nome": "dp-bk-crud",
+        "url": "https://github.com/numih/dp-bk-crud",
+        "canonico": "Numih/dp-bk-crud",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": "Biblioteca CRUD genérica para Go/GORM"
+      },
+      "gitlink": "915876b744917597379c6d35f6d19f4db244aa11",
+      "portas": []
+    },
+    {
+      "nome": "dp-bk-dinheiro",
+      "caminho": "libs/dp-bk-dinheiro",
+      "categoria": "lib",
+      "camadas": [
+        "backend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "dp-bk-dinheiro",
+        "url": "https://github.com/Numih/dp-bk-dinheiro",
+        "canonico": "Numih/dp-bk-dinheiro",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": null
+      },
+      "gitlink": "e6e6b9a7a218158921250e9ebf2e1c9abd9e8bae",
+      "portas": []
+    },
+    {
+      "nome": "dp-bk-graphql",
+      "caminho": "libs/dp-bk-graphql",
+      "categoria": "lib",
+      "camadas": [
+        "backend"
+      ],
+      "repo": {
+        "owner": "numih",
+        "nome": "dp-bk-graphql",
+        "url": "https://github.com/numih/dp-bk-graphql",
+        "canonico": "Numih/dp-bk-graphql",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": null
+      },
+      "gitlink": "80f1dd1d34c908ef9e4e949200d0896d309d3696",
+      "portas": []
+    },
+    {
+      "nome": "dp-bk-http",
+      "caminho": "libs/dp-bk-http",
+      "categoria": "lib",
+      "camadas": [
+        "backend"
+      ],
+      "repo": {
+        "owner": "numih",
+        "nome": "dp-bk-http",
+        "url": "https://github.com/numih/dp-bk-http",
+        "canonico": "Numih/dp-bk-http",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": null
+      },
+      "gitlink": "93091012b9d5ace25ca480fddb5bca6ba22fa6bb",
+      "portas": []
+    },
+    {
+      "nome": "dp-bk-indexador-calc",
+      "caminho": "libs/dp-bk-indexador-calc",
+      "categoria": "lib",
+      "camadas": [
+        "backend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "dp-bk-indexador-calc",
+        "url": "https://github.com/Numih/dp-bk-indexador-calc",
+        "canonico": "Numih/dp-bk-indexador-calc",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": null
+      },
+      "gitlink": "813720a587ee1bc807d4ea873181772cebb05561",
+      "portas": []
+    },
+    {
+      "nome": "dp-bk-llm",
+      "caminho": "libs/dp-bk-llm",
+      "categoria": "lib",
+      "camadas": [
+        "backend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "dp-bk-llm",
+        "url": "https://github.com/Numih/dp-bk-llm",
+        "canonico": "Numih/dp-bk-llm",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": "Cliente Go para LLMs (OpenRouter) com retry, fallback e prompt caching"
+      },
+      "gitlink": "d8ac79ac71533c652858241414b4ab0423e2355d",
+      "portas": []
+    },
+    {
+      "nome": "dp-bk-logger",
+      "caminho": "libs/dp-bk-logger",
+      "categoria": "lib",
+      "camadas": [
+        "backend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "dp-bk-logger",
+        "url": "https://github.com/Numih/dp-bk-logger",
+        "canonico": "Numih/dp-bk-logger",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": null
+      },
+      "gitlink": "930b72bac92891d3c1207143ada4d6e6de0e974d",
+      "portas": []
+    },
+    {
+      "nome": "dp-bk-messaging",
+      "caminho": "libs/dp-bk-messaging",
+      "categoria": "lib",
+      "camadas": [
+        "backend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "dp-bk-messaging",
+        "url": "https://github.com/Numih/dp-bk-messaging",
+        "canonico": "Numih/dp-bk-messaging",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": "Numih internal messaging library for JSON-RPC and Pub/Sub adapters"
+      },
+      "gitlink": "ed0549a9db23348902b137bfd903c4530a9bad6c",
+      "portas": []
+    },
+    {
+      "nome": "dp-bk-otel",
+      "caminho": "libs/dp-bk-otel",
+      "categoria": "lib",
+      "camadas": [
+        "backend"
+      ],
+      "repo": {
+        "owner": "numih",
+        "nome": "dp-bk-otel",
+        "url": "https://github.com/numih/dp-bk-otel",
+        "canonico": "Numih/dp-bk-otel",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": "Configurações padrão de Open Telemetry"
+      },
+      "gitlink": "69c22832d9f87e1d67fcce10aae1f8056b658d58",
+      "portas": []
+    },
+    {
+      "nome": "dp-bk-postgres",
+      "caminho": "libs/dp-bk-postgres",
+      "categoria": "lib",
+      "camadas": [
+        "backend"
+      ],
+      "repo": {
+        "owner": "numih",
+        "nome": "dp-bk-postgres",
+        "url": "https://github.com/numih/dp-bk-postgres",
+        "canonico": "Numih/dp-bk-postgres",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": "Biblioteca Go para padronização de operações e modelagem PostgreSQL"
+      },
+      "gitlink": "a666c1b850a8325bb0000910567156feec6bf4fb",
+      "portas": []
+    },
+    {
+      "nome": "dp-bk-rabbitmq",
+      "caminho": "libs/dp-bk-rabbitmq",
+      "categoria": "lib",
+      "camadas": [
+        "backend"
+      ],
+      "repo": {
+        "owner": "numih",
+        "nome": "dp-bk-rabbitmq",
+        "url": "https://github.com/numih/dp-bk-rabbitmq",
+        "canonico": "Numih-archive/dp-bk-rabbitmq",
+        "renomeado": true,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": "Biblioteca Go padronizada para mensageria assíncrona e RPC com RabbitMQ"
+      },
+      "gitlink": "bb3d0cf2954361af7c118338e697449700fde036",
+      "portas": []
+    },
+    {
+      "nome": "dp-bk-redis",
+      "caminho": "libs/dp-bk-redis",
+      "categoria": "lib",
+      "camadas": [
+        "backend"
+      ],
+      "repo": {
+        "owner": "numih",
+        "nome": "dp-bk-redis",
+        "url": "https://github.com/numih/dp-bk-redis",
+        "canonico": "Numih/dp-bk-redis",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": null
+      },
+      "gitlink": "f5daabe01072445bb8e7d4d4c4cbff0bf99a4280",
+      "portas": []
+    },
+    {
+      "nome": "dp-ft-labels",
+      "caminho": "libs/dp-ft-labels",
+      "categoria": "lib",
+      "camadas": [
+        "frontend"
+      ],
+      "repo": {
+        "owner": "numih",
+        "nome": "dp-ft-labels",
+        "url": "https://github.com/numih/dp-ft-labels",
+        "canonico": "Numih/dp-ft-labels",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "JavaScript",
+        "descricao": null
+      },
+      "gitlink": "89d3076a980d593681c86c2db8543b2dcaa537fd",
+      "portas": []
+    },
+    {
+      "nome": "fractal",
+      "caminho": "libs/fractal",
+      "categoria": "lib",
+      "camadas": [
+        "backend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "fractal",
+        "url": "https://github.com/Numih/fractal",
+        "canonico": "Numih/fractal",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": "Fullstack framework + deploy platform for large distributed apps — extracted from the numih stack. A never-ending pattern of mostly-similar shapes."
+      },
+      "gitlink": "c1e775e7bbd0cc3585de99e4a5b4d9bd698c0272",
+      "portas": []
+    },
+    {
+      "nome": "nusip",
+      "caminho": "libs/nusip",
+      "categoria": "lib",
+      "camadas": [
+        "backend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "nusip",
+        "url": "https://github.com/Numih/nusip",
+        "canonico": "Numih/nusip",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "C",
+        "descricao": null
+      },
+      "gitlink": null,
+      "portas": []
+    },
+    {
+      "nome": "acervo",
+      "caminho": "modules/acervo",
+      "categoria": "módulo",
+      "camadas": [
+        "backend",
+        "frontend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "acervo",
+        "url": "https://github.com/Numih/acervo",
+        "canonico": "Numih/acervo",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": null
+      },
+      "gitlink": "59ece6191c7c25768242514b3ae3baca9bc64aa5",
+      "portas": [
+        {
+          "nome": "acervo",
+          "secao": "modules",
+          "descricao": "Catalogo e navegacao estruturada de documentos (agnostico ao tipo de conteudo); base para agentes/MCP e UI. Movido do idx 34 (ocupado de fato pelo bilhetagem); sem codigo no monorepo ainda.",
+          "depende": [],
+          "has_frontend": true,
+          "portas": {
+            "idx": 37,
+            "be_docker": 9037,
+            "be_local": 8137,
+            "fe_docker": 10037,
+            "fe_local": 11037
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8134,
+        "diverge": true
+      }
+    },
+    {
+      "nome": "agents",
+      "caminho": "modules/agents",
+      "categoria": "módulo",
+      "camadas": [
+        "backend",
+        "frontend"
+      ],
+      "repo": {
+        "owner": "numih",
+        "nome": "agents",
+        "url": "https://github.com/numih/agents",
+        "canonico": "Numih/agents",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": null
+      },
+      "gitlink": "f7a900eacdd229a71eed72ebf4b5cd1781086fdb",
+      "portas": [
+        {
+          "nome": "agents",
+          "secao": "modules",
+          "descricao": "Agentes de IA como funcionários do sistema (registro + runtime)",
+          "depende": [],
+          "has_frontend": true,
+          "portas": {
+            "idx": 45,
+            "be_docker": 9045,
+            "be_local": 8145,
+            "fe_docker": 10045,
+            "fe_local": 11045
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8140,
+        "diverge": true
+      }
+    },
+    {
+      "nome": "ai_assistente",
+      "caminho": "modules/ai_assistente",
+      "categoria": "módulo",
+      "camadas": [],
+      "repo": {
+        "owner": "Numih",
+        "nome": "ai_assistente",
+        "url": "https://github.com/Numih/ai_assistente",
+        "canonico": "Numih/mcp",
+        "renomeado": true,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": null
+      },
+      "gitlink": "4315647e0763227606a15127eb053ebef710201b",
+      "portas": [
+        {
+          "nome": "ai-assistente-mcp",
+          "secao": "tools",
+          "descricao": "Servidor MCP do ai_assistente (produto de usuário final; expõe o ERP via gateway GraphQL para agentes de IA)",
+          "portas": {
+            "docker_stable": 4447,
+            "local_dev": 4448
+          }
+        }
+      ]
+    },
+    {
+      "nome": "analitica",
+      "caminho": "modules/analitica",
+      "categoria": "módulo",
+      "camadas": [
+        "backend",
+        "frontend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "analitica",
+        "url": "https://github.com/Numih/analitica",
+        "canonico": "Numih/analitica",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": null
+      },
+      "gitlink": "7ac74b0a8c3c389eff2a969c91e8461d088d6f3d",
+      "portas": [
+        {
+          "nome": "analitica",
+          "secao": "modules",
+          "descricao": "Camada de BI/analitica: microfrontend de paineis (client) + backend de visoes/layout de painel salvos (server). O Cube fica em tools (analitica-cube 12070); o adaptador que existia na 12072 foi removido — o server fala com o Cube direto, assinando o JWT do tenant.",
+          "depende": [],
+          "has_frontend": true,
+          "portas": {
+            "idx": 40,
+            "be_docker": 9040,
+            "be_local": 8140,
+            "fe_docker": 10040,
+            "fe_local": 11040
+          }
+        },
+        {
+          "nome": "analitica-cube",
+          "secao": "tools",
+          "descricao": "Cube (modelo semantico da analitica): API + playground. Em hom/prod e um Cloud Run proprio (analitica-cube), imagem do componente cubo/ do repo analitica; aqui roda no grupo compose com o cube.js bind-mount.",
+          "portas": {
+            "docker_stable": 12070
+          }
+        },
+        {
+          "nome": "analitica-cube-sql",
+          "secao": "tools",
+          "descricao": "SQL API do Cube da analitica (protocolo Postgres wire) para ferramentas de BI. Mesmo container do analitica-cube; nao exposta em hom/prod.",
+          "portas": {
+            "docker_stable": 12071
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8140,
+        "diverge": false
+      }
+    },
+    {
+      "nome": "apoio",
+      "caminho": "modules/apoio",
+      "categoria": "módulo",
+      "camadas": [
+        "backend",
+        "frontend"
+      ],
+      "repo": {
+        "owner": "numih",
+        "nome": "apoio",
+        "url": "https://github.com/numih/apoio",
+        "canonico": "Numih/apoio",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": null
+      },
+      "gitlink": "92d447b5981112c54a45ccc20620adcf85fa1ad3",
+      "portas": [
+        {
+          "nome": "apoio",
+          "secao": "modules",
+          "descricao": "Modulo Apoio (cadastros basicos; terceiro modulo obrigatorio)",
+          "depende": [
+            "sistema",
+            "conta-corrente",
+            "arquivos"
+          ],
+          "has_frontend": true,
+          "portas": {
+            "idx": 8,
+            "be_docker": 9008,
+            "be_local": 8108,
+            "fe_docker": 10008,
+            "fe_local": 11008
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8108,
+        "diverge": false
+      }
+    },
+    {
+      "nome": "auth",
+      "caminho": "modules/auth",
+      "categoria": "módulo",
+      "camadas": [
+        "backend",
+        "frontend"
+      ],
+      "repo": {
+        "owner": "numih",
+        "nome": "auth",
+        "url": "https://github.com/numih/auth",
+        "canonico": "Numih/auth",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": "Módulo de autenticação e gerenciamento de roles da plataforma Numih, integrado com Clerk"
+      },
+      "gitlink": "6c192818f96e0880f9a215a4b9a18f50891c9004",
+      "portas": [
+        {
+          "nome": "auth",
+          "secao": "modules",
+          "descricao": "Autenticacao central (Clerk + RBAC)",
+          "depende": [],
+          "has_frontend": true,
+          "portas": {
+            "idx": 3,
+            "be_docker": 9003,
+            "be_local": 8103,
+            "fe_docker": 10003,
+            "fe_local": 11003
+          }
+        },
+        {
+          "nome": "auth-login",
+          "secao": "modules",
+          "descricao": "Pagina de login (auth/login-client). Sem backend proprio.",
+          "depende": [
+            "auth"
+          ],
+          "has_frontend": true,
+          "has_backend": false,
+          "portas": {
+            "idx": 4,
+            "fe_docker": 10004,
+            "fe_local": 11004
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8103,
+        "diverge": false
+      }
+    },
+    {
+      "nome": "avaliacoes",
+      "caminho": "modules/avaliacoes",
+      "categoria": "módulo",
+      "camadas": [
+        "backend",
+        "frontend"
+      ],
+      "repo": {
+        "owner": "numih",
+        "nome": "avaliacoes",
+        "url": "https://github.com/numih/avaliacoes",
+        "canonico": "Numih/avaliacoes",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": "Módulo unificado de Avaliações/Aprovações - Golang + React"
+      },
+      "gitlink": "d0b1e8930ac07d2e14fac64cc94479cb9c771652",
+      "portas": [
+        {
+          "nome": "avaliacoes",
+          "secao": "modules",
+          "descricao": "Fluxos de aprovacao/avaliacao",
+          "depende": [],
+          "has_frontend": true,
+          "portas": {
+            "idx": 15,
+            "be_docker": 9015,
+            "be_local": 8115,
+            "fe_docker": 10015,
+            "fe_local": 11015
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8115,
+        "diverge": false
+      }
+    },
+    {
+      "nome": "bilhetagem",
+      "caminho": "modules/bilhetagem",
+      "categoria": "módulo",
+      "camadas": [
+        "backend",
+        "frontend"
+      ],
+      "repo": {
+        "owner": "numih",
+        "nome": "bilhetagem",
+        "url": "https://github.com/numih/bilhetagem",
+        "canonico": "Numih/bilhetagem",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": "Módulo de bilhetagem (metering/billing SaaS): tarifa uso da plataforma por tenant (tarifas globais/por-tenant, descontos por volume, faturas)"
+      },
+      "gitlink": "daaabfd8be685def3cf41558fd9bf90ce9f2b13a",
+      "portas": [
+        {
+          "nome": "bilhetagem",
+          "secao": "modules",
+          "descricao": "Metering e billing SaaS vendor->tenant (meters, tarifas, faturas). Ja usa as portas do idx 34 de fato (config.yaml/module.dev.yaml).",
+          "depende": [],
+          "has_frontend": true,
+          "portas": {
+            "idx": 34,
+            "be_docker": 9034,
+            "be_local": 8134,
+            "fe_docker": 10034,
+            "fe_local": 11034
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8134,
+        "diverge": false
+      }
+    },
+    {
+      "nome": "checklist",
+      "caminho": "modules/checklist",
+      "categoria": "módulo",
+      "camadas": [
+        "backend",
+        "frontend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "checklist",
+        "url": "https://github.com/Numih/checklist",
+        "canonico": "Numih/checklist",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "TypeScript",
+        "descricao": null
+      },
+      "gitlink": "aaba6f050c2641b998f2bb6954eed6c5f659f57b",
+      "portas": [
+        {
+          "nome": "checklist",
+          "secao": "modules",
+          "descricao": "Checklists operacionais",
+          "depende": [],
+          "has_frontend": true,
+          "portas": {
+            "idx": 14,
+            "be_docker": 9014,
+            "be_local": 8114,
+            "fe_docker": 10014,
+            "fe_local": 11014
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8114,
+        "diverge": false
+      }
+    },
+    {
+      "nome": "clinicas",
+      "caminho": "modules/clinicas",
+      "categoria": "módulo",
+      "camadas": [
+        "backend",
+        "frontend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "clinicas",
+        "url": "https://github.com/Numih/clinicas",
+        "canonico": "Numih/clinicas",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "TypeScript",
+        "descricao": "Módulo Clínicas — fachada simplificada para o setor de clínicas"
+      },
+      "gitlink": "eeb17f14817c46da21010fb4ba474b68d1b8ec2b",
+      "portas": [
+        {
+          "nome": "clinicas",
+          "secao": "modules",
+          "descricao": "Fachada simplificada para o setor de clínicas (sem entidades próprias no início).",
+          "depende": [
+            "apoio"
+          ],
+          "has_frontend": true,
+          "portas": {
+            "idx": 44,
+            "be_docker": 9044,
+            "be_local": 8144,
+            "fe_docker": 10044,
+            "fe_local": 11044
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8144,
+        "diverge": false
+      }
+    },
+    {
+      "nome": "condominio",
+      "caminho": "modules/condominio",
+      "categoria": "módulo",
+      "camadas": [
+        "backend",
+        "frontend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "condominio",
+        "url": "https://github.com/Numih/condominio",
+        "canonico": "Numih/condominio",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": "Gestao financeira de condominios - modulo do ecossistema Numih"
+      },
+      "gitlink": "1c603cc85d2ec8e031f8148da746f72fc7ec7eaf",
+      "portas": [
+        {
+          "nome": "condominio",
+          "secao": "modules",
+          "descricao": "Gestao financeira de condominios",
+          "depende": [
+            "imoveis"
+          ],
+          "has_frontend": true,
+          "portas": {
+            "idx": 33,
+            "be_docker": 9033,
+            "be_local": 8133,
+            "fe_docker": 10033,
+            "fe_local": 11033
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8133,
+        "diverge": false
+      }
+    },
+    {
+      "nome": "conta-corrente",
+      "caminho": "modules/conta-corrente",
+      "categoria": "módulo",
+      "camadas": [
+        "backend",
+        "frontend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "conta-corrente",
+        "url": "https://github.com/Numih/conta-corrente",
+        "canonico": "Numih/conta-corrente",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "PLpgSQL",
+        "descricao": "Sistema de conta corrente com controle de transações, saldos e retroativas"
+      },
+      "gitlink": "f704c9bd952fc828c9e7b5ef300f9bc7e4f7f18e",
+      "portas": [
+        {
+          "nome": "conta-corrente",
+          "secao": "modules",
+          "descricao": "Conta corrente (segundo modulo obrigatorio)",
+          "depende": [
+            "auth"
+          ],
+          "has_frontend": true,
+          "portas": {
+            "idx": 6,
+            "be_docker": 9006,
+            "be_local": 8106,
+            "fe_docker": 10006,
+            "fe_local": 11006
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8106,
+        "diverge": false
+      }
+    },
+    {
+      "nome": "contratos",
+      "caminho": "modules/contratos",
+      "categoria": "módulo",
+      "camadas": [
+        "backend",
+        "frontend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "contratos",
+        "url": "https://github.com/Numih/contratos",
+        "canonico": "Numih/contratos",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": null
+      },
+      "gitlink": "901bac20b2da6ff8eb6f30087db880ae91fdc22d",
+      "portas": [
+        {
+          "nome": "contratos",
+          "secao": "modules",
+          "descricao": "Contratos, aditivos, medicoes",
+          "depende": [
+            "auth"
+          ],
+          "has_frontend": true,
+          "portas": {
+            "idx": 11,
+            "be_docker": 9011,
+            "be_local": 8111,
+            "fe_docker": 10011,
+            "fe_local": 11011
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8111,
+        "diverge": false
+      }
+    },
+    {
+      "nome": "core",
+      "caminho": "modules/core",
+      "categoria": "módulo",
+      "camadas": [
+        "backend",
+        "frontend"
+      ],
+      "repo": {
+        "owner": "numih",
+        "nome": "core",
+        "url": "https://github.com/numih/core",
+        "canonico": "Numih/core",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": "Core do Numih — catálogos, menus, licenças, onboarding e cadastro do tenant (split do auth)"
+      },
+      "gitlink": "03b6d76bcbadb63526331f672f2ff29067f37ed2",
+      "portas": [
+        {
+          "nome": "core",
+          "secao": "modules",
+          "descricao": "Servicos core compartilhados (core-server + core-client). Compartilha o idx 4 com auth-login (FE-only): o core fica com o bloco BE 8104/9004 e o auth-login com o bloco FE 10004/11004. Como o bloco FE do idx 4 ja tem dono, o core usa o bloco FE do idx 7, permanentemente vago (arquivos e BE-only). E o que compose.frontends.yml ja publica em 10007:80.",
+          "depende": [],
+          "has_frontend": true,
+          "portas": {
+            "idx": 4,
+            "be_docker": 9004,
+            "be_local": 8104,
+            "fe_docker": 10007,
+            "fe_local": 11007
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8104,
+        "diverge": false
+      }
+    },
+    {
+      "nome": "crm",
+      "caminho": "modules/crm",
+      "categoria": "módulo",
+      "camadas": [],
+      "repo": {
+        "owner": "Numih",
+        "nome": "crm",
+        "url": "https://github.com/Numih/crm",
+        "canonico": "Numih/crm",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": "Thread and chat management"
+      },
+      "gitlink": "39d9777e8a0df0c3c6d608c1b8729cbf6a061675",
+      "portas": []
+    },
+    {
+      "nome": "financeiro",
+      "caminho": "modules/financeiro",
+      "categoria": "módulo",
+      "camadas": [
+        "backend",
+        "frontend"
+      ],
+      "repo": {
+        "owner": "numih",
+        "nome": "financeiro",
+        "url": "https://github.com/numih/financeiro",
+        "canonico": "Numih/financeiro",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": null
+      },
+      "gitlink": "b1751502234aad45e004b8bcc07d726f04231814",
+      "portas": [
+        {
+          "nome": "financeiro",
+          "secao": "modules",
+          "descricao": "Contas a pagar/receber, titulos, indexadores",
+          "depende": [
+            "conta-corrente"
+          ],
+          "has_frontend": true,
+          "portas": {
+            "idx": 9,
+            "be_docker": 9009,
+            "be_local": 8109,
+            "fe_docker": 10009,
+            "fe_local": 11009
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8109,
+        "diverge": false
+      }
+    },
+    {
+      "nome": "glossario",
+      "caminho": "modules/glossario",
+      "categoria": "módulo",
+      "camadas": [
+        "backend",
+        "frontend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "glossario",
+        "url": "https://github.com/Numih/glossario",
+        "canonico": "Numih/glossario",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "TypeScript",
+        "descricao": null
+      },
+      "gitlink": "3e7f120e59445ea6bdec77d435f6c037d0bfa522",
+      "portas": [
+        {
+          "nome": "glossario",
+          "secao": "modules",
+          "descricao": "Glossario corporativo (verbetes do ecossistema; consulta publica intra-tenant)",
+          "depende": [],
+          "has_frontend": true,
+          "portas": {
+            "idx": 23,
+            "be_docker": 9023,
+            "be_local": 8123,
+            "fe_docker": 10023,
+            "fe_local": 11023
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8123,
+        "diverge": false
+      }
+    },
+    {
+      "nome": "hospitalar",
+      "caminho": "modules/hospitalar",
+      "categoria": "módulo",
+      "camadas": [
+        "backend",
+        "frontend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "hospitalar",
+        "url": "https://github.com/Numih/hospitalar",
+        "canonico": "Numih/hospitalar",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": null
+      },
+      "gitlink": "02fd44f9199c5596527e362ab59b52a4898f7957",
+      "portas": [
+        {
+          "nome": "hospitalar",
+          "secao": "modules",
+          "descricao": "Módulo hospitalar — guias, operadoras e atendimentos",
+          "depende": [],
+          "has_frontend": true,
+          "portas": {
+            "idx": 17,
+            "be_docker": 9017,
+            "be_local": 8117,
+            "fe_docker": 10017,
+            "fe_local": 11017
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8117,
+        "diverge": false
+      }
+    },
+    {
+      "nome": "imoveis",
+      "caminho": "modules/imoveis",
+      "categoria": "módulo",
+      "camadas": [
+        "backend",
+        "frontend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "imoveis",
+        "url": "https://github.com/Numih/imoveis",
+        "canonico": "Numih/imoveis",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "TypeScript",
+        "descricao": null
+      },
+      "gitlink": "c736a97103e60a031002682a87c647e861ea832b",
+      "portas": [
+        {
+          "nome": "imoveis",
+          "secao": "modules",
+          "descricao": "Gestao de imoveis",
+          "depende": [],
+          "has_frontend": true,
+          "portas": {
+            "idx": 20,
+            "be_docker": 9020,
+            "be_local": 8120,
+            "fe_docker": 10020,
+            "fe_local": 11020
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8120,
+        "diverge": false
+      }
+    },
+    {
+      "nome": "logs",
+      "caminho": "modules/logs",
+      "categoria": "módulo",
+      "camadas": [
+        "backend",
+        "frontend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "logs",
+        "url": "https://github.com/Numih/logs",
+        "canonico": "Numih/logs",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": null
+      },
+      "gitlink": "ab3504528bc5ae05272455a7b2b1b49985d4d4e1",
+      "portas": [
+        {
+          "nome": "logs",
+          "secao": "modules",
+          "descricao": "Auditoria global (triggers/event triggers). Sobe primeiro para instalar a infra de logs no banco antes de qualquer tabela.",
+          "depende": [],
+          "has_frontend": true,
+          "portas": {
+            "idx": 2,
+            "be_docker": 9002,
+            "be_local": 8102,
+            "fe_docker": 10002,
+            "fe_local": 11002
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8102,
+        "diverge": false
+      }
+    },
+    {
+      "nome": "notas-fiscais",
+      "caminho": "modules/notas-fiscais",
+      "categoria": "módulo",
+      "camadas": [
+        "backend",
+        "frontend"
+      ],
+      "repo": {
+        "owner": "numih",
+        "nome": "notas-fiscais",
+        "url": "https://github.com/numih/notas-fiscais",
+        "canonico": "Numih/notas-fiscais",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Java",
+        "descricao": "Modulo de notas fiscais"
+      },
+      "gitlink": "78639f6ca906816c0927712aa47c53b6dbdfa647",
+      "portas": [
+        {
+          "nome": "notas-fiscais",
+          "secao": "modules",
+          "descricao": "Emissao e controle de notas fiscais",
+          "depende": [],
+          "has_frontend": true,
+          "portas": {
+            "idx": 18,
+            "be_docker": 9018,
+            "be_local": 8118,
+            "fe_docker": 10018,
+            "fe_local": 11018
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8118,
+        "diverge": false
+      }
+    },
+    {
+      "nome": "pabx",
+      "caminho": "modules/pabx",
+      "categoria": "módulo",
+      "camadas": [
+        "backend",
+        "frontend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "pabx",
+        "url": "https://github.com/Numih/pabx",
+        "canonico": "Numih/pabx",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": null
+      },
+      "gitlink": "94e5cd8e13d3ea204c443aa759fe70f3f1882891",
+      "portas": [
+        {
+          "nome": "pabx",
+          "secao": "modules",
+          "descricao": "PABX (telefonia; websocket em porta dedicada 8091 - ver notas)",
+          "depende": [],
+          "has_frontend": true,
+          "portas": {
+            "idx": 19,
+            "be_docker": 9019,
+            "be_local": 8119,
+            "fe_docker": 10019,
+            "fe_local": 11019
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8119,
+        "diverge": false
+      }
+    },
+    {
+      "nome": "planejamento",
+      "caminho": "modules/planejamento",
+      "categoria": "módulo",
+      "camadas": [
+        "backend",
+        "frontend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "planejamento",
+        "url": "https://github.com/Numih/planejamento",
+        "canonico": "Numih/planejamento",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": null
+      },
+      "gitlink": "15c0065b363ce0c669f03eed053c4a9865375fc9",
+      "portas": [
+        {
+          "nome": "planejamento",
+          "secao": "modules",
+          "descricao": "Planejamento orcamentario e cenarios",
+          "depende": [],
+          "has_frontend": true,
+          "portas": {
+            "idx": 12,
+            "be_docker": 9012,
+            "be_local": 8112,
+            "fe_docker": 10012,
+            "fe_local": 11012
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8112,
+        "diverge": false
+      }
+    },
+    {
+      "nome": "portaldohospital",
+      "caminho": "modules/portaldohospital",
+      "categoria": "módulo",
+      "camadas": [
+        "backend",
+        "frontend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "portaldohospital",
+        "url": "https://github.com/Numih/portaldohospital",
+        "canonico": "Numih/portaldohospital",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": "Portal vertical do hospital (shell próprio para convidados)"
+      },
+      "gitlink": "1fa180ab599df5f0e6a12c572c976edd16bebd87",
+      "portas": [
+        {
+          "nome": "portaldohospital",
+          "secao": "modules",
+          "descricao": "Portal do Hospital — portal para médicos interagirem com hospitais (catálogo, vínculo, guias). Shell próprio em domínio próprio; não é carregado pelo nm-ft-root.",
+          "depende": [
+            "hospitalar",
+            "avaliacoes",
+            "auth"
+          ],
+          "has_frontend": true,
+          "portas": {
+            "idx": 42,
+            "be_docker": 9042,
+            "be_local": 8142,
+            "fe_docker": 10042,
+            "fe_local": 11042
+          }
+        },
+        {
+          "nome": "portaldohospital-login",
+          "secao": "modules",
+          "descricao": "Página de login do Portal do Hospital (portaldohospital/login-client). Sem backend próprio.",
+          "depende": [
+            "auth",
+            "portaldohospital"
+          ],
+          "has_frontend": true,
+          "has_backend": false,
+          "portas": {
+            "idx": 43,
+            "fe_docker": 10043,
+            "fe_local": 11043
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8142,
+        "diverge": false
+      }
+    },
+    {
+      "nome": "protocolos",
+      "caminho": "modules/protocolos",
+      "categoria": "módulo",
+      "camadas": [
+        "backend",
+        "frontend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "protocolos",
+        "url": "https://github.com/Numih/protocolos",
+        "canonico": "Numih/protocolos",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": null
+      },
+      "gitlink": "00f01c2c6ee7456a07997a4a1d2652e6edb86945",
+      "portas": [
+        {
+          "nome": "protocolos",
+          "secao": "modules",
+          "descricao": "Gestao de protocolos",
+          "depende": [],
+          "has_frontend": true,
+          "portas": {
+            "idx": 21,
+            "be_docker": 9021,
+            "be_local": 8121,
+            "fe_docker": 10021,
+            "fe_local": 11021
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8121,
+        "diverge": false
+      }
+    },
+    {
+      "nome": "relacionamento",
+      "caminho": "modules/relacionamento",
+      "categoria": "módulo",
+      "camadas": [
+        "backend",
+        "frontend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "relacionamento",
+        "url": "https://github.com/Numih/relacionamento",
+        "canonico": "Numih/relacionamento",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "TypeScript",
+        "descricao": null
+      },
+      "gitlink": "70515f580f9b461253e3a29d6dda6310a86dab03",
+      "portas": [
+        {
+          "nome": "relacionamento",
+          "secao": "modules",
+          "descricao": "Gestao de relacionamento (CRM/contatos)",
+          "depende": [
+            "auth",
+            "sistema"
+          ],
+          "has_frontend": true,
+          "portas": {
+            "idx": 26,
+            "be_docker": 9026,
+            "be_local": 8126,
+            "fe_docker": 10026,
+            "fe_local": 11026
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8126,
+        "diverge": false
+      }
+    },
+    {
+      "nome": "rpa",
+      "caminho": "modules/rpa",
+      "categoria": "módulo",
+      "camadas": [
+        "backend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "rpa",
+        "url": "https://github.com/Numih/rpa",
+        "canonico": "Numih/rpa",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "TypeScript",
+        "descricao": null
+      },
+      "gitlink": "e23f3b85da749c983f1b6ba86963ee2bf5b32588",
+      "portas": [
+        {
+          "nome": "rpa",
+          "secao": "modules",
+          "descricao": "Automacao de processos (RPA). BE-only; consumido por hospitalar via RPC (localhost:8122/rpa/rpc em dev).",
+          "depende": [
+            "arquivos",
+            "hospitalar"
+          ],
+          "has_frontend": false,
+          "portas": {
+            "idx": 22,
+            "be_docker": 9022,
+            "be_local": 8122
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8122,
+        "diverge": false
+      }
+    },
+    {
+      "nome": "scheduler",
+      "caminho": "modules/scheduler",
+      "categoria": "módulo",
+      "camadas": [
+        "backend",
+        "frontend"
+      ],
+      "repo": {
+        "owner": "numih",
+        "nome": "scheduler",
+        "url": "https://github.com/numih/scheduler",
+        "canonico": "Numih/scheduler",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": "Módulo scheduler — dispatcher central de agendamentos recorrentes (Agendamentos)"
+      },
+      "gitlink": "dc890d7cf8d45ed8386a2970acba0450f93134fe",
+      "portas": [
+        {
+          "nome": "scheduler",
+          "secao": "modules",
+          "descricao": "Dispatcher central de agendamentos recorrentes (Agendamentos): registro por evento, CRON/RRULE, heartbeat via Cloud Scheduler",
+          "depende": [],
+          "has_frontend": true,
+          "portas": {
+            "idx": 36,
+            "be_docker": 9036,
+            "be_local": 8136,
+            "fe_docker": 10036,
+            "fe_local": 11036
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8136,
+        "diverge": false
+      }
+    },
+    {
+      "nome": "sistema",
+      "caminho": "modules/sistema",
+      "categoria": "módulo",
+      "camadas": [
+        "backend",
+        "frontend"
+      ],
+      "repo": {
+        "owner": "numih",
+        "nome": "sistema",
+        "url": "https://github.com/numih/sistema",
+        "canonico": "Numih/sistema",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": "módulo para onboarding, importações e configurações"
+      },
+      "gitlink": "6a1c497fb450a28e62a37fb2ed748de3ca476d5d",
+      "portas": [
+        {
+          "nome": "sistema",
+          "secao": "modules",
+          "descricao": "Modulo Sistema (primeiro modulo obrigatorio de negocio)",
+          "depende": [],
+          "has_frontend": true,
+          "portas": {
+            "idx": 5,
+            "be_docker": 9005,
+            "be_local": 8105,
+            "fe_docker": 10005,
+            "fe_local": 11005
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8105,
+        "diverge": false
+      }
+    },
+    {
+      "nome": "suprimentos",
+      "caminho": "modules/suprimentos",
+      "categoria": "módulo",
+      "camadas": [
+        "backend",
+        "frontend"
+      ],
+      "repo": {
+        "owner": "numih",
+        "nome": "suprimentos",
+        "url": "https://github.com/numih/suprimentos",
+        "canonico": "Numih/suprimentos",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": "Módulo de Suprimentos - Backend Go"
+      },
+      "gitlink": "89e665ec1febade48c17475d6971527826bdbbb8",
+      "portas": [
+        {
+          "nome": "suprimentos",
+          "secao": "modules",
+          "descricao": "Materiais, servicos, solicitacoes, cotacoes",
+          "depende": [],
+          "has_frontend": true,
+          "portas": {
+            "idx": 10,
+            "be_docker": 9010,
+            "be_local": 8110,
+            "fe_docker": 10010,
+            "fe_local": 11010
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8110,
+        "diverge": false
+      }
+    },
+    {
+      "nome": "tarefas",
+      "caminho": "modules/tarefas",
+      "categoria": "módulo",
+      "camadas": [
+        "backend",
+        "frontend"
+      ],
+      "repo": {
+        "owner": "numih",
+        "nome": "tarefas",
+        "url": "https://github.com/numih/tarefas",
+        "canonico": "Numih/tarefas",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "TypeScript",
+        "descricao": null
+      },
+      "gitlink": "8d313ae8fb10fec44e4d51a3d3083a7ae8d6c9ce",
+      "portas": [
+        {
+          "nome": "tarefas",
+          "secao": "modules",
+          "descricao": "Gestao de tarefas",
+          "depende": [],
+          "has_frontend": true,
+          "portas": {
+            "idx": 13,
+            "be_docker": 9013,
+            "be_local": 8113,
+            "fe_docker": 10013,
+            "fe_local": 11013
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8113,
+        "diverge": false
+      }
+    },
+    {
+      "nome": "arquivos",
+      "caminho": "services/arquivos",
+      "categoria": "serviço",
+      "camadas": [
+        "backend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "arquivos",
+        "url": "https://github.com/Numih/arquivos",
+        "canonico": "Numih/arquivos",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": null
+      },
+      "gitlink": "02f0dd37a414ff2a653ef41bfbe4783a86fbce14",
+      "portas": [
+        {
+          "nome": "arquivos",
+          "secao": "modules",
+          "descricao": "Servico de arquivos (GCS via fake-gcs-server). Sem frontend proprio; o bloco FE do idx 7 (10007/11007) esta cedido ao core, que compartilha o idx 4 com auth-login e por isso nao tem bloco FE proprio.",
+          "depende": [],
+          "has_frontend": false,
+          "portas": {
+            "idx": 7,
+            "be_docker": 9007,
+            "be_local": 8107
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8107,
+        "diverge": false
+      }
+    },
+    {
+      "nome": "busca",
+      "caminho": "services/busca",
+      "categoria": "serviço",
+      "camadas": [
+        "backend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "busca",
+        "url": "https://github.com/Numih/busca",
+        "canonico": "Numih/busca",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": null
+      },
+      "gitlink": "0a22cb351878192328fa8e5fb52a04d78a8ea582",
+      "portas": [
+        {
+          "nome": "busca",
+          "secao": "modules",
+          "descricao": "Busca universal do tenant (Typesense). Indexa registros via change-feed (outbox no dp-bk-crud); proxy de query com RLS. Sem frontend proprio (UI vive em components/nm-ft-root).",
+          "depende": [
+            "apoio",
+            "conta-corrente"
+          ],
+          "has_frontend": false,
+          "portas": {
+            "idx": 32,
+            "be_docker": 9032,
+            "be_local": 8132
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8132,
+        "diverge": false
+      }
+    },
+    {
+      "nome": "documentos",
+      "caminho": "services/documentos",
+      "categoria": "serviço",
+      "camadas": [
+        "backend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "documentos",
+        "url": "https://github.com/Numih/documentos",
+        "canonico": "Numih/documentos",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": "Catálogo imutável de templates e renderização de documentos"
+      },
+      "gitlink": "e9106d5fcc259bd86085e76da44769639e984fed",
+      "portas": [
+        {
+          "nome": "documentos",
+          "secao": "modules",
+          "descricao": "Catálogo imutável de templates e renderização de documentos via Carbone",
+          "depende": [
+            "arquivos"
+          ],
+          "has_frontend": false,
+          "portas": {
+            "idx": 35,
+            "be_docker": 9035,
+            "be_local": 8135
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8135,
+        "diverge": false
+      }
+    },
+    {
+      "nome": "gateway",
+      "caminho": "services/gateway",
+      "categoria": "serviço",
+      "camadas": [
+        "backend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "gateway",
+        "url": "https://github.com/Numih/gateway",
+        "canonico": "Numih/gateway",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": "API para roteamento de requisições para os serviços corretos"
+      },
+      "gitlink": "c8983eb4bbac2b14079ba92a8db27d5fa59322d6",
+      "portas": [
+        {
+          "nome": "nm-bk-gateway",
+          "secao": "gateways",
+          "descricao": "Gateway HTTP (roteia /api, /auth, etc)",
+          "portas": {
+            "docker_stable": 8080
+          }
+        }
+      ]
+    },
+    {
+      "nome": "nm-bk-assinaturas",
+      "caminho": "services/nm-bk-assinaturas",
+      "categoria": "serviço",
+      "camadas": [
+        "backend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "nm-bk-assinaturas",
+        "url": "https://github.com/Numih/nm-bk-assinaturas",
+        "canonico": "Numih/nm-bk-assinaturas",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": null
+      },
+      "gitlink": "b857f0eb39dfe8a15ea6c59c9cb4fc3b936352e1",
+      "portas": []
+    },
+    {
+      "nome": "nm-bk-graphql-gateway",
+      "caminho": "services/nm-bk-graphql-gateway",
+      "categoria": "serviço",
+      "camadas": [
+        "backend"
+      ],
+      "repo": {
+        "owner": "numih",
+        "nome": "nm-bk-graphql-gateway",
+        "url": "https://github.com/numih/nm-bk-graphql-gateway",
+        "canonico": "Numih/nm-bk-graphql-gateway",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "TypeScript",
+        "descricao": null
+      },
+      "gitlink": "66888d55128d2a65bd2f5f38b942c3e6169d03c8",
+      "portas": [
+        {
+          "nome": "nm-bk-graphql-gateway",
+          "secao": "gateways",
+          "descricao": "Supergraph GraphQL (Apollo Federation)",
+          "portas": {
+            "docker_stable": 4000
+          }
+        }
+      ]
+    },
+    {
+      "nome": "nm-graphql-registry",
+      "caminho": "services/nm-graphql-registry",
+      "categoria": "serviço",
+      "camadas": [
+        "backend"
+      ],
+      "repo": {
+        "owner": "numih",
+        "nome": "nm-graphql-registry",
+        "url": "https://github.com/numih/nm-graphql-registry",
+        "canonico": "Numih/nm-graphql-registry",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "TypeScript",
+        "descricao": null
+      },
+      "gitlink": "72a852b0e80dd208246f386e4f413cc40e8ad2b1",
+      "portas": []
+    },
+    {
+      "nome": "notificacoes",
+      "caminho": "services/notificacoes",
+      "categoria": "serviço",
+      "camadas": [
+        "backend",
+        "frontend"
+      ],
+      "repo": {
+        "owner": "numih",
+        "nome": "notificacoes",
+        "url": "https://github.com/numih/notificacoes",
+        "canonico": "Numih/notificacoes",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": null
+      },
+      "gitlink": "2de454a850fd6e633f38985f2b4ad43d40910e15",
+      "portas": [
+        {
+          "nome": "notificacoes",
+          "secao": "modules",
+          "descricao": "Notificacoes do sistema. Frontend de administracao dos templates de WhatsApp (WABA central).",
+          "depende": [],
+          "has_frontend": true,
+          "portas": {
+            "idx": 16,
+            "be_docker": 9016,
+            "be_local": 8116,
+            "fe_docker": 10016,
+            "fe_local": 11016
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8090,
+        "diverge": true
+      }
+    },
+    {
+      "nome": "nm-fs-template",
+      "caminho": "templates/nm-fs-template",
+      "categoria": "template",
+      "camadas": [],
+      "repo": {
+        "owner": "Numih",
+        "nome": "nm-fs-template",
+        "url": "https://github.com/Numih/nm-fs-template",
+        "canonico": "Numih/nm-fs-template",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": "Full stack app template"
+      },
+      "gitlink": "81ef9c8955080f1497b09df202f44903c51381ba",
+      "portas": []
+    },
+    {
+      "nome": "cursor",
+      "caminho": "tools/cursor",
+      "categoria": "ferramenta",
+      "camadas": [],
+      "repo": {
+        "owner": "Numih",
+        "nome": "cursor",
+        "url": "https://github.com/Numih/cursor",
+        "canonico": "Numih/cursor",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": "IA Rules"
+      },
+      "gitlink": "76183bdb9679db6e66bd33faf7511b471918e1ac",
+      "portas": []
+    },
+    {
+      "nome": "devtools",
+      "caminho": "tools/devtools",
+      "categoria": "ferramenta",
+      "camadas": [],
+      "repo": {
+        "owner": "numih",
+        "nome": "devtools",
+        "url": "https://github.com/numih/devtools",
+        "canonico": "Numih/devtools",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "TypeScript",
+        "descricao": "Docker compose para desenvolvimento"
+      },
+      "gitlink": "0e28e46240a57b10019a81cc26d162631ec6bbc0",
+      "portas": [
+        {
+          "nome": "dev-portal",
+          "secao": "tools",
+          "descricao": "Pagina web com todas as ferramentas de desenvolvimento (dashboard Next.js)",
+          "portas": {
+            "docker_stable": 3001,
+            "local_dev": 3002
+          }
+        },
+        {
+          "nome": "devtools-daemon",
+          "secao": "tools",
+          "descricao": "Daemon do DevTools (singleton, sem versao local)",
+          "portas": {
+            "docker_stable": 17280
+          }
+        },
+        {
+          "nome": "mcp-http",
+          "secao": "tools",
+          "descricao": "Servidor MCP HTTP (Model Context Protocol)",
+          "portas": {
+            "docker_stable": 4445,
+            "local_dev": 4446
+          }
+        }
+      ]
+    },
+    {
+      "nome": "expr",
+      "caminho": "tools/expr",
+      "categoria": "ferramenta",
+      "camadas": [],
+      "repo": {
+        "owner": "numih",
+        "nome": "expr",
+        "url": "https://github.com/numih/expr",
+        "canonico": "Numih/expr",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": "Environment variables expression parser for Go"
+      },
+      "gitlink": "b6e9953e7c5525f15ed444985bc9619f6b35003e",
+      "portas": []
+    },
+    {
+      "nome": "roadmap",
+      "caminho": "tools/roadmap",
+      "categoria": "ferramenta",
+      "camadas": [],
+      "repo": {
+        "owner": "Numih",
+        "nome": "roadmap",
+        "url": "https://github.com/Numih/roadmap",
+        "canonico": "Numih/roadmap",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": null,
+        "descricao": null
+      },
+      "gitlink": "46b6e929115349832269dc39ab9b43b0c9ce6f84",
+      "portas": []
+    },
+    {
+      "nome": "seed",
+      "caminho": "tools/seed",
+      "categoria": "ferramenta",
+      "camadas": [
+        "backend",
+        "frontend"
+      ],
+      "repo": {
+        "owner": "Numih",
+        "nome": "seed",
+        "url": "https://github.com/Numih/seed",
+        "canonico": "Numih/seed",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Go",
+        "descricao": null
+      },
+      "gitlink": "398f640585eca66f595a6c443da63ef4eebaff3b",
+      "portas": [
+        {
+          "nome": "seed",
+          "secao": "modules",
+          "descricao": "Orquestrador de seeds dos modulos via GraphQL (substitui seed-demo)",
+          "depende": [],
+          "has_frontend": true,
+          "portas": {
+            "idx": 25,
+            "be_docker": 9025,
+            "be_local": 8125,
+            "fe_docker": 10025,
+            "fe_local": 11025
+          }
+        }
+      ],
+      "dev_yaml": {
+        "porta_backend_local": 8125,
+        "diverge": false
+      }
+    },
+    {
+      "nome": "seed-demo",
+      "caminho": "tools/seed-demo",
+      "categoria": "ferramenta",
+      "camadas": [],
+      "repo": {
+        "owner": "Numih",
+        "nome": "seed-demo",
+        "url": "https://github.com/Numih/seed-demo",
+        "canonico": "numih-ai/seed-demo",
+        "renomeado": true,
+        "arquivado": false,
+        "linguagem": "TypeScript",
+        "descricao": null
+      },
+      "gitlink": "505c28853c3fbdbaf5f6db8b4ef8d6f2f10e1861",
+      "portas": [
+        {
+          "nome": "seed-demo-server",
+          "secao": "tools",
+          "descricao": "API HTTP do seed-demo (Hono + Bun) — orquestra seeds dos modulos via GraphQL",
+          "portas": {
+            "local_dev": 12002
+          }
+        },
+        {
+          "nome": "seed-demo-web",
+          "secao": "tools",
+          "descricao": "Frontend ShadCN do seed-demo (Vite + React) — UI para executar historias de seed",
+          "portas": {
+            "local_dev": 12003
+          }
+        }
+      ]
+    },
+    {
+      "nome": "setup",
+      "caminho": "tools/setup",
+      "categoria": "ferramenta",
+      "camadas": [],
+      "repo": {
+        "owner": "numih",
+        "nome": "setup",
+        "url": "https://github.com/numih/setup",
+        "canonico": "Numih/setup",
+        "renomeado": false,
+        "arquivado": false,
+        "linguagem": "Shell",
+        "descricao": null
+      },
+      "gitlink": "a4eccfed3f80abbeabdf41c1878b9ddbdf6a0a42",
+      "portas": []
+    }
+  ],
+  "portas_sem_submodulo": [
+    {
+      "nome": "edge",
+      "secao": "modules",
+      "descricao": "Integração com a infraestrutura local dos clientes (edge-agent: dispositivos, adapters, eventos). Vendor-level, schema fixo.",
+      "depende": [],
+      "has_frontend": true,
+      "portas": {
+        "idx": 24,
+        "be_docker": 9024,
+        "be_local": 8124,
+        "fe_docker": 10024,
+        "fe_local": 11024
+      }
+    },
+    {
+      "nome": "analise-documental",
+      "secao": "modules",
+      "descricao": "Analise documental (extracao e IA sobre documentos).",
+      "depende": [],
+      "has_frontend": true,
+      "portas": {
+        "idx": 27,
+        "be_docker": 9027,
+        "be_local": 8127,
+        "fe_docker": 10027,
+        "fe_local": 11027
+      }
+    },
+    {
+      "nome": "cobranca",
+      "secao": "modules",
+      "descricao": "Gestao de cobranca (em construcao; esqueleto).",
+      "depende": [],
+      "has_frontend": true,
+      "portas": {
+        "idx": 28,
+        "be_docker": 9028,
+        "be_local": 8128,
+        "fe_docker": 10028,
+        "fe_local": 11028
+      }
+    },
+    {
+      "nome": "vendas",
+      "secao": "modules",
+      "descricao": "Modulo de vendas (em construcao; esqueleto).",
+      "depende": [],
+      "has_frontend": true,
+      "portas": {
+        "idx": 29,
+        "be_docker": 9029,
+        "be_local": 8129,
+        "fe_docker": 10029,
+        "fe_local": 11029
+      }
+    },
+    {
+      "nome": "locacoes",
+      "secao": "modules",
+      "descricao": "Gestao de locacoes (em construcao).",
+      "depende": [],
+      "has_frontend": true,
+      "portas": {
+        "idx": 30,
+        "be_docker": 9030,
+        "be_local": 8130,
+        "fe_docker": 10030,
+        "fe_local": 11030
+      }
+    },
+    {
+      "nome": "analise-legal",
+      "secao": "modules",
+      "descricao": "Analise legal/juridica de documentos.",
+      "depende": [],
+      "has_frontend": true,
+      "portas": {
+        "idx": 31,
+        "be_docker": 9031,
+        "be_local": 8131,
+        "fe_docker": 10031,
+        "fe_local": 11031
+      }
+    },
+    {
+      "nome": "threads",
+      "secao": "modules",
+      "descricao": "Transporte de canais (WhatsApp, webhooks Meta, thread/parts). Base de transporte consumida por relacionamento.",
+      "depende": [],
+      "has_frontend": true,
+      "portas": {
+        "idx": 38,
+        "be_docker": 9038,
+        "be_local": 8138,
+        "fe_docker": 10038,
+        "fe_local": 11038
+      }
+    },
+    {
+      "nome": "provisioner",
+      "secao": "modules",
+      "descricao": "Orquestracao de workloads por tenant em VMs (clusters MIG, hosts, driver asterisk-tenant). Vendor-level, schema fixo.",
+      "depende": [],
+      "has_frontend": true,
+      "portas": {
+        "idx": 39,
+        "be_docker": 9039,
+        "be_local": 8139,
+        "fe_docker": 10039,
+        "fe_local": 11039
+      }
+    },
+    {
+      "nome": "sip-tester",
+      "secao": "modules",
+      "descricao": "Ferramenta de lab do PABX — emulador SIP (PJSUA2) + modo Load autenticado via GraphQL (ramalCriarLote). Backend tipicamente no box; FE local em tmux.",
+      "depende": [
+        "pabx"
+      ],
+      "has_frontend": true,
+      "portas": {
+        "idx": 41,
+        "be_docker": 9041,
+        "be_local": 8141,
+        "fe_docker": 10041,
+        "fe_local": 11041
+      }
+    },
+    {
+      "nome": "event-bus",
+      "secao": "gateways",
+      "descricao": "Event bus (mensageria RPC/streams via Pub/Sub emulator)",
+      "portas": {
+        "docker_stable": 8681
+      }
+    },
+    {
+      "nome": "galeria-shadcn-io",
+      "secao": "tools",
+      "descricao": "Galeria do espelho do shadcn.io (repo shadcn-io; renderiza os itens localmente, dev local apenas)",
+      "portas": {
+        "local_dev": 6008
+      }
+    },
+    {
+      "nome": "pgadmin",
+      "secao": "tools",
+      "descricao": "UI web para Postgres",
+      "portas": {
+        "docker_stable": 12000
+      }
+    },
+    {
+      "nome": "redis-commander",
+      "secao": "tools",
+      "descricao": "UI web para Redis",
+      "portas": {
+        "docker_stable": 12001
+      }
+    },
+    {
+      "nome": "fake-gcs-server",
+      "secao": "tools",
+      "descricao": "Emulador GCS local (upload de arquivos; bucket padrao numih-docs)",
+      "portas": {
+        "docker_stable": 4443
+      }
+    }
+  ],
+  "avisos": [
+    "`frontend/landing-page`: caminho difere do nome do repositório (Numih/numih.com).",
+    "`libs/dp-bk-rabbitmq` aponta para numih/dp-bk-rabbitmq, movido para Numih-archive/dp-bk-rabbitmq (o README manda remover do workspace o repositório arquivado).",
+    "`libs/nusip` está no .gitmodules mas não tem gitlink na main do workspace.",
+    "`modules/acervo`: module.dev.yaml usa a porta 8134, mas o catálogo dá be_local 8137 (idx 37). O catálogo é a fonte da verdade.",
+    "`modules/agents`: module.dev.yaml usa a porta 8140, mas o catálogo dá be_local 8145 (idx 45). O catálogo é a fonte da verdade.",
+    "`modules/ai_assistente` aponta para Numih/ai_assistente, que hoje é Numih/mcp (renomeado ou movido; o README exige caminho e URL com o nome atual).",
+    "`services/notificacoes`: module.dev.yaml usa a porta 8090, mas o catálogo dá be_local 8116 (idx 16). O catálogo é a fonte da verdade.",
+    "`tools/seed-demo` aponta para Numih/seed-demo, que hoje é numih-ai/seed-demo (renomeado ou movido; o README exige caminho e URL com o nome atual)."
+  ]
+}

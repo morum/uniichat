@@ -1,0 +1,228 @@
+#!/usr/bin/env bash
+# numih-sync — mantém as cópias de referência da Numih (somente leitura) em
+# ~/.unii/numih: o superprojeto Numih/workspace (sem submódulos), as regras
+# Numih/cursor e, sob demanda, cópias de módulos em mod/<nome>.
+#
+# Nunca escreve fora de $NUMIH_HOME. Nunca faz commit, push, reset ou force:
+# só clone, fetch e avanço rápido (fast-forward). Se uma cópia divergir da
+# origin/main ou tiver alteração local, para com erro e não toca nela.
+#
+# Uso:
+#   numih-sync sync          clona o que falta e avança tudo para a origin/main
+#   numih-sync check         busca e informa quantos commits cada cópia está atrás
+#   numih-sync check --no-fetch   idem, sem buscar (usa o que já foi buscado)
+#   numih-sync map           regenera $NUMIH_HOME/modulos.json e MODULOS.md
+#   numih-sync mod <nome>    cria/atualiza a cópia de referência de Numih/<nome>
+#   numih-sync install       copia este script e o numih-map.ts para $NUMIH_HOME/bin
+#
+# Saída de check: 0 = tudo em dia; 10 = alguma cópia atrás (sem erro);
+#                 1 = erro (cópia alterada, divergente, fora da main…).
+#
+# Variáveis: NUMIH_HOME (padrão ~/.unii/numih); NUMIH_REMOTE_BASE (padrão
+# https://github.com/Numih — só para testes com remotos locais).
+
+set -euo pipefail
+
+NUMIH_HOME="${NUMIH_HOME:-$HOME/.unii/numih}"
+REMOTE_BASE="${NUMIH_REMOTE_BASE:-https://github.com/Numih}"
+BRANCH=main
+BASE_REPOS=(workspace cursor)
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+NO_PUSH_URL="no-push://copia-de-referencia-somente-leitura"
+
+erro() { printf 'numih-sync: erro: %s\n' "$*" >&2; }
+info() { printf '%s\n' "$*"; }
+
+# --- guarda de caminho: só opera dentro de $NUMIH_HOME, nunca em ~/repository
+case "$NUMIH_HOME" in
+  /*) ;;
+  *) erro "NUMIH_HOME precisa ser absoluto: $NUMIH_HOME"; exit 1 ;;
+esac
+# Resolve sem criar nada; as guardas vêm antes de qualquer escrita.
+NUMIH_HOME="$(realpath -m "$NUMIH_HOME")"
+HOME_REAL="$(realpath -m "$HOME")"
+REPO_ROOT="$HOME_REAL/repository"
+case "$NUMIH_HOME/" in
+  "$REPO_ROOT"/*) erro "recuso operar dentro de $REPO_ROOT ($NUMIH_HOME)"; exit 1 ;;
+esac
+if [ "$NUMIH_HOME" = "$HOME_REAL" ] || [ "$NUMIH_HOME" = / ]; then
+  erro "NUMIH_HOME não pode ser o HOME nem a raiz"; exit 1
+fi
+mkdir -p "$NUMIH_HOME"
+
+g() { git -C "$1" "${@:2}"; }
+
+# Trava: duas execuções simultâneas não mexem nas mesmas cópias.
+exec 9>"$NUMIH_HOME/.lock"
+if ! flock -w 120 9; then erro "outra execução do numih-sync segura a trava há 120 s"; exit 1; fi
+
+proteger() {
+  # Cópia de referência: sem push e sem commit local.
+  local dir="$1"
+  g "$dir" config remote.origin.pushurl "$NO_PUSH_URL"
+  g "$dir" config submodule.recurse false
+  g "$dir" config fetch.recurseSubmodules false
+  local hooks; hooks="$(g "$dir" rev-parse --git-path hooks)"
+  case "$hooks" in /*) ;; *) hooks="$dir/$hooks" ;; esac
+  mkdir -p "$hooks"
+  local h
+  for h in pre-commit pre-merge-commit pre-push pre-rebase pre-applypatch; do
+    local alvo="$hooks/$h"
+    local corpo='#!/bin/sh
+echo "Cópia de referência da Numih (somente leitura): trabalhe num clone ou worktree próprio." >&2
+exit 1'
+    if [ ! -f "$alvo" ] || [ "$(cat "$alvo")" != "$corpo" ]; then
+      printf '%s\n' "$corpo" > "$alvo"
+      chmod 0755 "$alvo"
+    fi
+  done
+}
+
+clonar() {
+  local nome="$1" dir="$2"
+  info "clonando $REMOTE_BASE/$nome em $dir"
+  git clone --quiet --filter=blob:none --no-recurse-submodules --single-branch \
+    --branch "$BRANCH" "$REMOTE_BASE/$nome.git" "$dir"
+}
+
+# Verifica se a cópia está íntegra (main, limpa, sem commit local, origem certa).
+# Imprime o motivo e devolve 1 se não estiver.
+integra() {
+  local nome="$1" dir="$2"
+  if ! g "$dir" rev-parse --git-dir >/dev/null 2>&1; then
+    erro "$dir existe mas não é repositório git"; return 1
+  fi
+  if [ "$(g "$dir" rev-parse --is-shallow-repository)" = true ]; then
+    erro "$dir: clone raso (--depth) não avança por fast-forward com segurança; recrie-o sem --depth"; return 1
+  fi
+  # URL crua do config: `remote get-url` aplica insteadOf (ex.: https -> ssh).
+  local url; url="$(g "$dir" config --get remote.origin.url 2>/dev/null || true)"
+  if [ "${url%.git}" != "$REMOTE_BASE/$nome" ]; then
+    erro "$dir: origin é '$url', esperado '$REMOTE_BASE/$nome(.git)'"; return 1
+  fi
+  local ramo; ramo="$(g "$dir" symbolic-ref --quiet --short HEAD || echo '(destacado)')"
+  if [ "$ramo" != "$BRANCH" ]; then
+    erro "$dir: está em '$ramo', não em '$BRANCH'"; return 1
+  fi
+  local sujo; sujo="$(g "$dir" status --porcelain=v1 --untracked-files=all --ignore-submodules=none)"
+  if [ -n "$sujo" ]; then
+    erro "$dir: cópia de referência com alteração local ($(printf '%s\n' "$sujo" | wc -l) arquivo(s)); não toco nela"
+    printf '%s\n' "$sujo" | head -10 >&2
+    return 1
+  fi
+  if g "$dir" rev-parse --verify --quiet "refs/remotes/origin/$BRANCH" >/dev/null; then
+    local frente; frente="$(g "$dir" rev-list --count "origin/$BRANCH..HEAD")"
+    if [ "$frente" != 0 ]; then
+      erro "$dir: $frente commit(s) local(is) fora da origin/$BRANCH (cópia divergente); não toco nela"
+      return 1
+    fi
+  fi
+  if [ "$nome" = workspace ]; then
+    local ini; ini="$(g "$dir" submodule status 2>/dev/null | grep -vc '^-' || true)"
+    if [ "$ini" != 0 ]; then
+      erro "$dir: $ini submódulo(s) inicializado(s); a cópia de referência do workspace não inicializa submódulos"
+      return 1
+    fi
+  fi
+  return 0
+}
+
+buscar() {
+  g "$2" fetch --quiet --prune --no-recurse-submodules origin \
+    "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
+}
+
+sincronizar_um() {
+  local nome="$1" dir="$2"
+  if [ ! -e "$dir" ]; then
+    mkdir -p "$(dirname "$dir")"
+    clonar "$nome" "$dir"
+  fi
+  integra "$nome" "$dir" || return 1
+  proteger "$dir"
+  buscar "$nome" "$dir"
+  local antes depois
+  antes="$(g "$dir" rev-parse HEAD)"
+  if ! g "$dir" merge-base --is-ancestor HEAD "origin/$BRANCH"; then
+    erro "$dir: HEAD $antes não é ancestral de origin/$BRANCH (divergiu); não toco nela"
+    return 1
+  fi
+  g "$dir" merge --quiet --ff-only --no-edit "origin/$BRANCH" >/dev/null
+  depois="$(g "$dir" rev-parse HEAD)"
+  if [ "$antes" = "$depois" ]; then
+    info "$nome: em dia em ${depois:0:12}"
+  else
+    info "$nome: ${antes:0:12} -> ${depois:0:12} ($(g "$dir" rev-list --count "$antes..$depois") commit(s))"
+  fi
+}
+
+checar_um() {
+  local nome="$1" dir="$2" fetch="$3"
+  if [ ! -d "$dir" ]; then erro "$nome: ausente em $dir (rode: numih-sync sync)"; return 1; fi
+  integra "$nome" "$dir" || return 1
+  [ "$fetch" = 1 ] && buscar "$nome" "$dir"
+  local atras; atras="$(g "$dir" rev-list --count "HEAD..origin/$BRANCH")"
+  local quando; quando="$(g "$dir" log -1 --format=%cd --date=format:'%Y-%m-%d %H:%M' HEAD)"
+  info "$nome: HEAD $(g "$dir" rev-parse --short=12 HEAD) ($quando), $atras commit(s) atrás da origin/$BRANCH"
+  [ "$atras" = 0 ] || return 10
+}
+
+alvos() {
+  # nome<TAB>diretório de cada cópia gerida
+  local r
+  for r in "${BASE_REPOS[@]}"; do printf '%s\t%s\n' "$r" "$NUMIH_HOME/$r"; done
+  if [ -d "$NUMIH_HOME/mod" ]; then
+    for r in "$NUMIH_HOME"/mod/*/; do
+      [ -d "$r" ] || continue
+      r="${r%/}"; printf '%s\t%s\n' "$(basename "$r")" "$r"
+    done
+  fi
+}
+
+cmd="${1:-}"; shift || true
+case "$cmd" in
+  sync)
+    falhas=0
+    while IFS=$'\t' read -r nome dir; do
+      sincronizar_um "$nome" "$dir" || falhas=$((falhas + 1))
+    done < <(alvos)
+    if [ "$falhas" != 0 ]; then erro "$falhas cópia(s) com problema"; exit 1; fi
+    ;;
+  check)
+    fetch=1
+    [ "${1:-}" = "--no-fetch" ] && fetch=0
+    res=0
+    while IFS=$'\t' read -r nome dir; do
+      rc=0; checar_um "$nome" "$dir" "$fetch" || rc=$?
+      if [ "$rc" = 10 ]; then [ "$res" = 1 ] || res=10
+      elif [ "$rc" != 0 ]; then res=1; fi
+    done < <(alvos)
+    exit "$res"
+    ;;
+  map)
+    integra workspace "$NUMIH_HOME/workspace"
+    mapa="$SELF_DIR/numih-map.ts"
+    [ -f "$mapa" ] || { erro "numih-map.ts não encontrado ao lado do script ($mapa)"; exit 1; }
+    bun "$mapa" --workspace "$NUMIH_HOME/workspace" --out "$NUMIH_HOME"
+    ;;
+  mod)
+    nome="${1:-}"
+    if ! [[ "$nome" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then erro "nome de repositório inválido: '$nome'"; exit 1; fi
+    sincronizar_um "$nome" "$NUMIH_HOME/mod/$nome"
+    ;;
+  install)
+    mkdir -p "$NUMIH_HOME/bin"
+    for f in numih-sync numih-map.ts; do
+      if ! cmp -s "$SELF_DIR/$f" "$NUMIH_HOME/bin/$f" 2>/dev/null; then
+        install -m 0755 "$SELF_DIR/$f" "$NUMIH_HOME/bin/$f"
+        info "instalado: $NUMIH_HOME/bin/$f"
+      else
+        info "já instalado: $NUMIH_HOME/bin/$f"
+      fi
+    done
+    ;;
+  *)
+    sed -n '2,23p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    [ -z "$cmd" ] || [ "$cmd" = help ] || [ "$cmd" = -h ] || exit 2
+    ;;
+esac
