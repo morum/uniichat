@@ -1,7 +1,8 @@
 // Pick
 // ====
 // What a chat's calls run on, kept in its log: a vendor (claude-api,
-// openai-api, openai-sub: a ChatGPT plan, claude-sub: a Claude plan), a
+// openai-api, openai-sub: a ChatGPT plan, claude-sub: a Claude plan,
+// cursor: a Cursor plan), a
 // model of its, an effort and a speed; label vendor:model:effort:speed.
 // A chat that saved none takes the config's (`def`). A move steps one
 // part along the picks that differ in it (`options`), wrapping (up and
@@ -48,7 +49,7 @@ export type Fall = { vendor: Vendor; model: Model; effort?: string; speed?: stri
 // Constants
 // =========
 
-export const VENDORS: Vendor[] = ["claude-api", "openai-api", "openai-sub", "claude-sub"];
+export const VENDORS: Vendor[] = ["claude-api", "openai-api", "openai-sub", "claude-sub", "cursor"];
 
 const OPUS  : Model = { label: "opus-5.5",   id: "claude-opus-5-5",   speeds: ["slow", "fast"] };
 const SONNET: Model = { label: "sonnet-5.5", id: "claude-sonnet-5-5", speeds: ["slow"] };
@@ -62,12 +63,24 @@ const OPENAI: Model[] = [
 // a ChatGPT plan's (ChatGPT.ts): fast is its priority tier, no ultrafast
 const PLAN: Model[] = OPENAI.map((m) => ({ ...m, speeds: m.speeds.filter((s) => s !== "ultrafast") }));
 
+// a Cursor plan's (Cursor.ts): Claude's by the CLI's names (it adds the
+// effort, and "-fast" for the fast speed), and models of its own
+const CURSOR: Model[] = [
+  OPUS,
+  SONNET,
+  HAIKU,
+  { label: "gpt-5.6-sol",  id: "gpt-5.6-sol",  speeds: ["slow", "fast"] },
+  { label: "grok-4.7",     id: "grok-4.7",     speeds: ["slow", "fast"] },
+  { label: "composer-2.5", id: "composer-2.5", speeds: ["slow", "fast"] },
+];
+
 // each vendor's models, at the speeds it runs them
 const MODELS: Record<Vendor, Model[]> = {
   "claude-api": [OPUS, SONNET, HAIKU],
   "openai-api": OPENAI,
   "openai-sub": PLAN,
   "claude-sub": [{ ...OPUS, speeds: ["slow"] }, SONNET, HAIKU],
+  "cursor"    : CURSOR,
 };
 
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
@@ -135,11 +148,20 @@ export namespace Pick {
   }
 
   // the pick on another model (by label) of one of these vendors, if
-  // offered, the pick's own vendor's first; null: none
+  // offered, the pick's own vendor's first, or the one named
+  // "vendor:model" (a model two vendors have); null: none
   export function to_model(pick: Pick, label: string, vendors: Vendor[], { models }: Offer): Pick | null {
-    const all = Pick.models(vendors, models).filter(([, m]) => m.label === label);
+    const all = Pick.models(vendors, models).filter(([v, m]) => m.label === label || v + ":" + m.label === label);
     const hit = all.find(([v]) => v === pick.vendor) ?? all[0];
     return hit === undefined ? null : Pick.on(pick, hit[0], hit[1]);
+  }
+
+  // the models offered, by label, and "vendor:model" for each one more
+  // than one vendor offers (a spawn's choice: Tools.ts)
+  export function names(vendors: Vendor[], labels: string[]): string[] {
+    const all = Pick.models(vendors, labels);
+    const twins = all.filter(([v, m]) => Pick.twin(v, m.label, vendors) && labels.includes(m.label)).map(([v, m]) => v + ":" + m.label);
+    return [...new Set([...all.map(([, m]) => m.label), ...twins])];
   }
 
   // whether another vendor offered has a model of this label

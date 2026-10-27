@@ -5,7 +5,8 @@
 // hands the agent a message at its next chance, stop() aborts, wake()
 // ends a wait for a usage limit (Agent.park), `left` holds those never
 // taken. Every vendor is an API run in our loop (Agent.ts) but
-// claude-sub, run in Claude Code's (ClaudeSub.ts). A patient call (a
+// claude-sub, run in Claude Code's (ClaudeSub.ts), and cursor, in the
+// Cursor CLI's (Cursor.ts). A patient call (a
 // summary's) asks again, AGAIN after each try nothing answered (the
 // vendor down or refusing it, as when the API key's credit is gone; our
 // setup failing) or, if the vendor said when its refusal lifts (`until`:
@@ -37,6 +38,7 @@
 
 import { Agent } from "./Agent.ts";
 import { ClaudeSub } from "./ClaudeSub.ts";
+import { Cursor } from "./Cursor.ts";
 import { stream_lines } from "./Clip.ts";
 import { Machine } from "./Machine.ts";
 import { Pick } from "./Pick.ts";
@@ -50,7 +52,7 @@ import * as config from "./Config.ts";
 // result, a note from before the chat (imported)
 export type Kind = "user" | "work" | "mind" | "unii" | "tool" | "echo" | "note";
 
-export type Vendor = "claude-api" | "openai-api" | "openai-sub" | "claude-sub";
+export type Vendor = "claude-api" | "openai-api" | "openai-sub" | "claude-sub" | "cursor";
 
 // an image: its mime type, its bytes in base64
 export type Img = { type: string; data: string };
@@ -145,6 +147,7 @@ export const TTL: Record<Vendor, number> = {
   "openai-api" : 1800e3,
   "openai-sub" : 300e3,
   "claude-sub" : 300e3,
+  "cursor"     : 300e3,
 };
 
 // the prefixes cached, by key (AskAI.keys)
@@ -233,7 +236,7 @@ export namespace AskAI {
   // one try; a vendor that throws gives a failed one
   export function start(ask: Ask, on: (ev: Event) => void): Try {
     try {
-      return ask.vendor === "claude-sub" ? ClaudeSub.ask(ask, on) : Agent.ask(ask, on);
+      return ask.vendor === "claude-sub" ? ClaudeSub.ask(ask, on) : ask.vendor === "cursor" ? Cursor.ask(ask, on) : Agent.ask(ask, on);
     } catch (err: any) {
       const end = AskAI.end(err.message);
       const send = (say: Say) => end.left.push(say);
