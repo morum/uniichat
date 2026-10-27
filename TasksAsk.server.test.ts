@@ -133,6 +133,10 @@ test("\"PR, merge e reinício só quando você mandar.\" (a rule of Unii's) make
   await turn("Mesclei o #23 por ordem sua. PR, merge e reinício só quando você mandar.");
   expect(chat.mem.count).toBe(count + 1);
   expect(asked()).toHaveLength(0);
+  // "só" first in the clause: the same rule
+  await turn("Só mesclo quando você mandar.");
+  expect(chat.mem.count).toBe(count + 2);
+  expect(asked()).toHaveLength(0);
 });
 
 test("with a task of the user's made in the turn, or no question, nothing", async () => {
@@ -210,6 +214,28 @@ test("the user's name (config owner_name): a request on their order is theirs (P
   } finally {
     names.splice(0, names.length, ...had);
   }
+});
+
+test("Chat.reply gives the last reply's whole text, its pages joined; Chat.reply_msg its first page's id and date; from before `since`, or a note last, none (P112, B2)", async () => {
+  Chat.push(chat, null, "user", "Como está o #24?");
+  const began = Date.now();
+  const one = "O #24 está aprovado pelo verificador, sem ressalvas, e o CI ficou verde. ";
+  const two = "Os testes de ponta a ponta passaram na porta 8851. Quer que eu mescle como admin agora?";
+  const first = Chat.push(chat, null, "unii", one, [], true).id;
+  Chat.push(chat, null, "unii", two);
+  expect((one + two).length).toBeGreaterThan(80);
+  expect(Chat.reply(chat, began)).toBe(one + two);
+  expect(Chat.reply(chat)).toBe(one + two);
+  const msg = Chat.reply_msg(chat, began)!;
+  expect(msg.text).toBe(one + two);
+  expect(msg.id).toBe(first);
+  expect(msg.date).toBe(Memory.message(chat.mem, first)!.date!);
+  // logged before `since`: not the turn's
+  expect(Chat.reply(chat, Date.now() + 60e3)).toBeNull();
+  expect(Chat.reply_msg(chat, Date.now() + 60e3)).toBeNull();
+  // a note last: none
+  Chat.push(chat, null, "note", "Stopped by the user: Unii's turn.");
+  expect(Chat.reply(chat)).toBeNull();
 });
 
 test("a turn halted (a note last): nothing", async () => {

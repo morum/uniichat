@@ -236,7 +236,7 @@ test("a question without a task gets one of Unii's (P112): no fields, its next s
   expect(t.next_step).toBe(T.ASKED_STEP);
   expect(Date.parse(t.next_due!)).toBe(now + 4 * 3600e3);
   expect(t.done_when).toBe(T.ASKED_DONE);
-  expect(t.done_when).toContain("pendência real aberta ao usuário");
+  expect(t.done_when).toContain("pendência aberta ao usuário");
   expect(t.detail).toStartWith(T.ASKED_HEAD);
   expect(t.detail).toContain("Mensagem de origem: nº 4823, resposta do Unii, em ");
   expect(t.detail).toContain("que começa assim: “Os três estão aprovados, sem ressalvas. Quer que eu mescle?”");
@@ -307,6 +307,8 @@ test("a \"Pergunta sem pendência\" of the user's, made before P112, open: made 
     fields: [{ id: "resposta", label: "Sua resposta", kind: "text", required: true }], done_when: "o usuário responder",
   }, "trava", now - 3600e3) as T.Task;
   expect(old.assignee).toBe("user");
+  // a due of its own (the user's lateness): not Unii's 4 h, so not kept
+  old.next_due = new Date(now + 3600e3).toISOString();
   const t = T.task_asked(s, ["Aplico?"], now, { id: 7, text: "Aplico?", date: null }) as T.Task;
   expect(t.id).toBe(old.id);
   expect([t.assignee, t.kind, t.fields, t.next_step]).toEqual(["unii", "action", [], T.ASKED_STEP]);
@@ -358,7 +360,7 @@ test("only a task of the user's about the question spares it (B2)", () => {
 
 test("the note says the task made is Unii's, to resolve, or why none", () => {
   const t = { id: "P9" } as T.Task;
-  expect(T.questions_said(["Mesclo?"], t)).toBe("Pergunta sem pendência: o Unii perguntou “Mesclo?” sem abrir nem atualizar, neste turno, uma pendência do usuário. Registrei na P9, tarefa do Unii, não do usuário. Unii: resolva a P9: leia a mensagem de origem; se era pergunta real, abra a pendência do usuário com task_add (assignee user, com as opções) e feche a P9; se era alarme falso, feche a P9 com o motivo.");
+  expect(T.questions_said(["Mesclo?"], t)).toBe("Pergunta sem pendência: o Unii perguntou “Mesclo?” sem abrir nem atualizar, neste turno, uma pendência do usuário. Registrei na P9, tarefa do Unii, não do usuário. Unii: resolva a P9: leia a mensagem de origem; se era pergunta real, abra a pendência do usuário com task_add (assignee user, com as opções) e encerre a P9 com task_edit (state dropped, evidence do tipo reason) citando a nova pendência; se era alarme falso, encerre a P9 do mesmo modo, com o motivo no reason.");
   const none = T.questions_said(["Mesclo?"], "The list has 100 open tasks");
   expect(none).toContain("não foi possível registrar a tarefa do Unii (The list has 100 open tasks)");
   expect(none).toContain("abra a pendência do usuário com task_add");
@@ -374,6 +376,76 @@ test("\"PR, merge e reinício só quando você mandar.\" is a rule of Unii's, no
   expect(asks("Quando você mandar, reinicio.")).toEqual(["Quando você mandar, reinicio."]);
   expect(asks("PR, merge e reinício só quando você mandar: aguardo sua ordem.")).toEqual(["PR, merge e reinício só quando você mandar: aguardo sua ordem."]);
   expect(asks("Reinicio só quando você mandar?")).toEqual(["Reinicio só quando você mandar?"]);
+});
+
+test("\"só\" anywhere in the clause before \"quando você mandar\" makes it a rule of Unii's; in another clause, or inside a word, it doesn't (P112, B1)", () => {
+  // "só" first, or not just before "quando": the same rule
+  expect(asks("Só mesclo quando você mandar.")).toEqual([]);
+  expect(asks("Mesclo só quando você mandar.")).toEqual([]);
+  expect(asks("Só mesclo hoje e faço o deploy quando você mandar.")).toEqual([]);
+  expect(asks("Apenas aplico em prod quando você mandar.")).toEqual([]);
+  // in the clause before (a comma, a semicolon): it limits something else
+  expect(asks("Falta só o CI; mesclo quando você mandar.")).toEqual(["Falta só o CI; mesclo quando você mandar."]);
+  expect(asks("Só falta o CI, mesclo quando você mandar.")).toEqual(["Só falta o CI, mesclo quando você mandar."]);
+  // "so" inside a word is no "só"
+  expect(asks("Faço isso quando você mandar.")).toEqual(["Faço isso quando você mandar."]);
+  expect(asks("Faço sozinho quando você mandar.")).toEqual(["Faço sozinho quando você mandar."]);
+  // only before "quando": "só" beside another request still asks
+  expect(asks("Só falta a sua aprovação.")).toEqual(["Só falta a sua aprovação."]);
+  expect(asks("Só mesclo se você quiser, posso mesclar agora.")).toEqual(["Só mesclo se você quiser, posso mesclar agora."]);
+});
+
+test("a new question doesn't restart the 4 h of an open task of Unii's: its due, when it moved, and so its lateness stay (P112)", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ask-"));
+  const s = T.tasks_load(dir);
+  const now = Date.now();
+  const t = T.task_asked(s, ["Mesclo?"], now, { id: 1, text: "Mesclo?", date: null }) as T.Task;
+  expect(Date.parse(t.next_due!)).toBe(now + 4 * 3600e3);
+  // 5 h later, past its due: a new question is added, the due stays
+  const later = now + 5 * 3600e3;
+  expect(Deps.overdue_ms(s.tasks, t, later)).toBe(3600e3);
+  const u = T.task_asked(s, ["Aplico?"], later, { id: 2, text: "Aplico?", date: null }) as T.Task;
+  expect(u.id).toBe(t.id);
+  expect(u.detail).toContain("• “Aplico?”");
+  expect(u.next_due).toBe(t.next_due);
+  expect(u.moved).toBe(t.moved);
+  expect(u.changed).toBe(new Date(later).toISOString());
+  expect(Deps.overdue_ms(s.tasks, u, later)).toBe(3600e3);
+  expect(T.tasks_load(dir).tasks.find((x) => x.id === t.id)!.next_due).toBe(t.next_due);
+  // still stalled, as the vigia sees it
+  expect(View.task_stalled_said(u, new Set(), later).text).toBe("parada há 5 h");
+  // one of Unii's with no due (edited so by hand): due from now
+  u.next_due = null;
+  const v = T.task_asked(s, ["Reinicio?"], later, null) as T.Task;
+  expect(Date.parse(v.next_due!)).toBe(later + 4 * 3600e3);
+  T.tasks_forget();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("the task closes as its head says: dropped with a reason citing the user's new task; done with a reason is refused (P112, B3)", () => {
+  expect(T.ASKED_HEAD).toContain("encerre esta tarefa com task_edit, state dropped e evidence do tipo reason (no mínimo 40 caracteres)");
+  expect(T.ASKED_HEAD).toContain("cite no reason o número da nova pendência");
+  expect(T.ASKED_HEAD).toContain("não fecha como done");
+  expect(T.ASKED_HEAD).not.toContain("feche esta tarefa citando");
+  expect(T.ASKED_STEP).toContain("task_edit (state dropped, evidence reason)");
+  expect(T.ASKED_DONE).toStartWith("esta tarefa encerrada como dropped");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ask-"));
+  const s = T.tasks_load(dir);
+  const now = Date.now();
+  const t = T.task_asked(s, ["Quer que eu mescle?"], now, { id: 1, text: "Quer que eu mescle?", date: null }) as T.Task;
+  const real = T.task_new(s, { title: "Ordem de merge do #23", assignee: "user", origin: "chat", choices: ["Mesclar", "Não mesclar"] }, "main", now + 1000) as T.Task;
+  const reason = { type: "reason", text: "Pergunta real: registrada na pendência " + real.id + " do usuário, com as opções." };
+  // done with a reason: refused, as the head says
+  const done = T.task_edit(s, { id: t.id, state: "done", evidence: reason }, now + 2000);
+  expect(typeof done).toBe("string");
+  expect(done as string).toContain("reason only drops a task");
+  // dropped with it: closed, the reason kept
+  const dropped = T.task_edit(s, { id: t.id, state: "dropped", evidence: reason }, now + 3000) as T.Task;
+  expect(typeof dropped).not.toBe("string");
+  expect(dropped.state).toBe("dropped");
+  expect(JSON.stringify(dropped.evidence)).toContain(real.id);
+  T.tasks_forget();
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test("\"Me avise caso discorde.\", \"caso não queira\" and \"Se mesclar, me avise.\" ask (P87 #5, B2 to B4)", () => {

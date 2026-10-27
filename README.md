@@ -80,8 +80,10 @@ Features
   that asks you something (a question, a decision, an order to give) with
   no task of yours about it gets a task of Unii's, "Pergunta sem
   pendência" (not in your Agora: each sentence with the reply it came
-  from, its id and text; Unii reads it and opens a task of yours with the
-  choices, or closes it as a false alarm, due in 4 h), made by the serve,
+  from, its id and text; Unii reads it, opens a task of yours with the
+  choices if it asked, and drops its own with a reason naming yours or
+  why it was a false alarm; due in 4 h, a new question added keeps that
+  due, late or not), made by the serve,
   and a note (`Tasks.questions_in`: a heuristic; quotes, code,
   headings, questions Unii answers itself, another's questions reported and
   questions to others don't count). A task of yours is the question's if

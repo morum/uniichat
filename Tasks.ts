@@ -2598,10 +2598,13 @@ const ASK_NOTIFY_BEFORE = new RegExp("^\\s*(?:e\\s+|mas\\s+)?(?:se|caso)\\s+(?!"
 // who doesn't, in the clause before: "Ele não decide, você decide." (P87
 // #3, B1); "Não, você decide." still asks
 const ASK_WHO_VERB = /\b(decide|escolhe|manda|define)\b/;
-// "só quando" (no accents, lower) just before a request on the user's
-// will: a rule Unii keeps ("PR, merge e reinício só quando você
-// mandar.", P112), not a request
-const ASK_ONLY_WHEN = /\b(?:so|somente|apenas|unicamente|exclusivamente)\s+$/;
+// "só" (no accents, lower) anywhere in the clause before a request on
+// the user's will ("quando você mandar"): a rule Unii keeps ("PR, merge
+// e reinício só quando você mandar.", "Só mesclo quando você mandar.",
+// "Mesclo só quando você mandar.", P112), not a request; in another
+// clause it limits something else ("Falta só o CI; mesclo quando você
+// mandar." asks)
+const ASK_ONLY_WHEN = /\b(?:so|somente|apenas|unicamente|exclusivamente)\b/;
 
 // whether a sentence (folded) asks in words (ASK_WORDS), one request in
 // it not negated just before (ASK_NEGATION), nor an instruction on an
@@ -2620,8 +2623,9 @@ function ask_in_words(s: string): boolean {
       continue;
     }
     // a rule of Unii's, not a request: "PR, merge e reinício só quando
-    // você mandar." (P112); "Mesclo quando você mandar." still asks
-    if (/^quando\b/.test(s.slice(at)) && ASK_ONLY_WHEN.test(s.slice(0, at))) {
+    // você mandar.", "Só mesclo quando você mandar." (P112); "Mesclo
+    // quando você mandar." still asks
+    if (/^quando\b/.test(s.slice(at)) && ASK_ONLY_WHEN.test(clause)) {
       continue;
     }
     if (/^me (?:avise|avisa|fale|fala)\b/.test(s.slice(at)) && clause.trim() === "" && ASK_NOTIFY_BEFORE.test(parts[parts.length - 1] ?? "")) {
@@ -2747,9 +2751,14 @@ export type AskFrom = { id: number | null; text: string; date: string | null };
 // done, how long Unii has for it (P112: the task is Unii's, not the
 // user's: Unii reads where the questions came from and asks the user
 // with a task of theirs, or closes it as a false alarm)
-export const ASKED_HEAD = "O Unii terminou um turno perguntando ou pedindo algo ao usuário sem abrir pendência (trava da P87). Esta tarefa é do Unii, não do usuário. Para cada frase abaixo, leia a mensagem de origem e decida: se era pergunta real, abra a pendência do usuário com task_add (assignee user, com as opções) e feche esta tarefa citando a nova pendência; se era alarme falso, feche esta tarefa com o motivo.";
-export const ASKED_STEP = "Ler a mensagem de origem; se era pergunta real, abrir pendência do usuário com task_add e opções; se alarme falso, fechar com motivo.";
-export const ASKED_DONE = "pendência real aberta ao usuário (task_add, assignee user) ou esta tarefa fechada com o motivo do alarme falso";
+// How it's closed: never done (done needs evidence of a solution, and
+// a reason in words only drops a task, Evidence.ts), but dropped with a
+// reason (task_edit, state dropped, evidence of type reason, at least
+// Evidence.REASON characters) naming the user's new task, or why the
+// sentence asked nothing (B3)
+export const ASKED_HEAD = "O Unii terminou um turno perguntando ou pedindo algo ao usuário sem abrir pendência (trava da P87). Esta tarefa é do Unii, não do usuário. Para cada frase abaixo, leia a mensagem de origem e decida se era pergunta real ou alarme falso. Se era pergunta real, abra a pendência do usuário com task_add (assignee user, com as opções). Depois encerre esta tarefa com task_edit, state dropped e evidence do tipo reason (no mínimo " + Ev.REASON + " caracteres): se era pergunta real, cite no reason o número da nova pendência; se era alarme falso, diga no reason por que a frase não pedia nada. Esta tarefa não fecha como done, porque done exige evidência de uma solução e o reason só serve para dropped.";
+export const ASKED_STEP = "Ler a mensagem de origem; se era pergunta real, abrir a pendência do usuário com task_add e opções; depois encerrar esta tarefa com task_edit (state dropped, evidence reason) citando a nova pendência ou o motivo do alarme falso.";
+export const ASKED_DONE = "esta tarefa encerrada como dropped, com evidence do tipo reason que cita a pendência aberta ao usuário (task_add, assignee user) ou diz por que era alarme falso";
 export const ASKED_DUE = 4 * 3600e3;
 // the most of the origin's text a block quotes
 const ASKED_QUOTE = 160;
@@ -2784,18 +2793,23 @@ function asked_detail(prev: string, block: string): string {
 // the task a question without one gets: Unii's (P112), no fields, its
 // next step due in ASKED_DUE, each sentence with its origin (`from`);
 // one open already (Unii's, or the user's made before P112, made
-// Unii's) gets these added; else why not (a full list)
+// Unii's) gets these added, Unii's keeping its due (late or not);
+// else why not (a full list)
 export function task_asked(s: Store, said: string[], now: number, from: AskFrom | null = null): Task | string {
   const block = asked_block(said, from);
   const due = new Date(now + ASKED_DUE).toISOString();
   const had = s.tasks.find((t) => t.state === "open" && t.title === ASKED_TITLE);
   if (had !== undefined) {
     const at = new Date(now).toISOString();
-    const keep = had.assignee === "unii" && had.next_due !== null && Date.parse(had.next_due) > now;
+    // Unii's already, with a due: its due and when it last moved stay,
+    // past or not (a new question doesn't restart its 4 h nor hide that
+    // it's late or stalled: it's the server's change, not Unii's move);
+    // the user's (made before P112), or none: due from now
+    const keep = had.assignee === "unii" && had.next_due !== null && !Number.isNaN(Date.parse(had.next_due));
     const next: Task = {
       ...had, assignee: "unii", kind: "action", fields: [], draft: {}, answers: null,
       detail: asked_detail(had.detail, block), done_when: ASKED_DONE, next_step: ASKED_STEP, next_due: keep ? had.next_due : due,
-      changed: at, moved: at, ready: at,
+      changed: at, moved: keep ? had.moved : at, ready: keep ? had.ready : at,
     };
     s.tasks[s.tasks.indexOf(had)] = next;
     tasks_save(s);
@@ -2813,5 +2827,5 @@ export function questions_said(said: string[], task: Task | string): string {
   const q = said.map((x) => "“" + x + "”").join(", ");
   return typeof task === "string"
     ? "Pergunta sem pendência: o Unii perguntou " + q + " sem abrir nem atualizar, neste turno, uma pendência do usuário, e não foi possível registrar a tarefa do Unii (" + task + "). Unii: releia a sua última resposta; se era pergunta real, abra a pendência do usuário com task_add (assignee user, com as opções); se era alarme falso, não faça nada."
-    : "Pergunta sem pendência: o Unii perguntou " + q + " sem abrir nem atualizar, neste turno, uma pendência do usuário. Registrei na " + task.id + ", tarefa do Unii, não do usuário. Unii: resolva a " + task.id + ": leia a mensagem de origem; se era pergunta real, abra a pendência do usuário com task_add (assignee user, com as opções) e feche a " + task.id + "; se era alarme falso, feche a " + task.id + " com o motivo.";
+    : "Pergunta sem pendência: o Unii perguntou " + q + " sem abrir nem atualizar, neste turno, uma pendência do usuário. Registrei na " + task.id + ", tarefa do Unii, não do usuário. Unii: resolva a " + task.id + ": leia a mensagem de origem; se era pergunta real, abra a pendência do usuário com task_add (assignee user, com as opções) e encerre a " + task.id + " com task_edit (state dropped, evidence do tipo reason) citando a nova pendência; se era alarme falso, encerre a " + task.id + " do mesmo modo, com o motivo no reason.";
 }
