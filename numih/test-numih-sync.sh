@@ -362,11 +362,17 @@ apagar() { # caminho, id
     NUMIH_HOME="$1"; apagar_parcial lib "$2" "$3"' _ "$AH" "$1" "$2"
 }
 id_de() { stat -c '%d:%i' -- "$1"; }
-# (a) a pasta do próprio clone: apagada, rc 0
+# (a) a pasta do próprio clone: apagada, rc 0. Vizinhos com nome parecido
+#     (certa.bak, certa2, certa-x) ficam: só a pasta do clone é apagada.
 mkdir -p "$AH/certa/.git"; echo x > "$AH/certa/.git/parcial"
+for v in certa.bak certa2 certa-x; do mkdir -p "$AH/$v"; echo "$v" > "$AH/$v/marca"; done
 espera_rc "apagar_parcial apaga a pasta do clone" 0 apagar "$AH/certa" "$(id_de "$AH/certa")"
 tem "apagar_parcial: informa a remoção" "^lib: pasta parcial do clone removida \($AH/certa\)$"
 [ ! -e "$AH/certa" ] && ok "apagar_parcial: pasta do clone apagada" || falha "apagar_parcial: pasta do clone ficou"
+for v in certa.bak certa2 certa-x; do
+  [ "$(cat "$AH/$v/marca" 2>/dev/null)" = "$v" ] && ok "apagar_parcial: vizinho $v intacto" || falha "apagar_parcial: apagou o vizinho $v"
+  rm -rf "$AH/$v"
+done
 espera_rc "apagar_parcial: pasta já ausente, rc 0" 0 apagar "$AH/certa" 0:0
 # (b) link simbólico para uma pasta dentro de casa, com o id do próprio link
 mkdir -p "$AH/alvo"; echo dado > "$AH/alvo/dado"; ln -s "$AH/alvo" "$AH/link"
@@ -387,6 +393,38 @@ espera_rc "apagar_parcial: rm que falha devolve 1" 1 apagar "$AH/dura" "$(id_de 
 tem "apagar_parcial: avisa que não conseguiu apagar" "^numih-sync: erro: lib: não consegui apagar a pasta parcial do clone \($AH/dura\); apague-a antes de rodar de novo$"
 grep -q "pasta parcial do clone removida" "$T/out" && falha "apagar_parcial: disse «removida» com o rm falhando" || ok "apagar_parcial: não diz «removida» com o rm falhando"
 chmod 0755 "$AH/dura/sub"
+
+# guarda_copia isolada com pasta vazia (sobra de clone interrompido): recusa e
+# PARA ali, com rc 1 e uma única linha de erro. Se seguisse, o git rodaria na
+# pasta vazia (fatal: not a git repository) e a checagem da origin diria
+# «origin é ''». Funções extraídas do próprio script (as mutações valem ali).
+FUNCS_G="$(awk '/^(erro|info|g)\(\) \{.*\}$/ { print; next } /^GIT_OPTS=/ { print; next } /^(dentro_de_casa|pasta_vazia|guarda_copia)\(\) \{$/ { f = 1 } f { print } f && /^\}$/ { f = 0 }' "$SYNC")"
+case "$FUNCS_G" in *"guarda_copia()"*) case "$FUNCS_G" in *"pasta_vazia()"*) case "$FUNCS_G" in *"GIT_OPTS="*"g()"*) ok "funções da guarda extraídas do script" ;; *) falha "não consegui extrair GIT_OPTS e g" ;; esac ;; *) falha "não consegui extrair pasta_vazia" ;; esac ;; *) falha "não consegui extrair guarda_copia" ;; esac
+mkdir -p "$AH/vazia"
+guardar() { # caminho
+  bash -c "$FUNCS_G"'
+    NUMIH_HOME="$1"; guarda_copia lib "$2"' _ "$AH" "$1"
+}
+espera_rc "guarda_copia: pasta vazia recusada com rc 1 exato" 1 guardar "$AH/vazia"
+tem "guarda_copia: motivo (pasta vazia)" "^numih-sync: erro: lib: $AH/vazia é uma pasta vazia \(sobra de um clone interrompido\); rode: numih-sync sync$"
+[ "$(wc -l < "$T/out")" = 1 ] && ok "guarda_copia: para na pasta vazia (uma só linha de saída)" || { falha "guarda_copia: seguiu depois da pasta vazia"; cat "$T/out"; }
+grep -q 'fatal:' "$T/out" && falha "guarda_copia: rodou git na pasta vazia" || ok "guarda_copia: nenhum git rodou na pasta vazia"
+[ -d "$AH/vazia" ] && [ -z "$(ls -A "$AH/vazia")" ] && ok "guarda_copia: pasta vazia intacta" || falha "guarda_copia: mexeu na pasta vazia"
+rmdir "$AH/vazia"
+
+# mod/ existente e VAZIA: não há módulo; check e sync não inventam uma cópia
+# «*» (o glob mod/*/ sem casamento fica literal e precisa ser descartado).
+HV="$T/home-mod-vazia"
+espera_rc "mod/ vazia: sync inicial" 0 env NUMIH_HOME="$HV" "$SYNC" sync
+mkdir -p "$HV/mod"
+espera_rc "mod/ vazia: check --no-fetch em dia" 0 env NUMIH_HOME="$HV" "$SYNC" check --no-fetch
+grep -qF "$HV/mod/" "$T/out" && falha "mod/ vazia: check criou entrada falsa em mod/" || ok "mod/ vazia: check sem entrada falsa"
+[ "$(grep -c ': HEAD ' "$T/out")" = 2 ] && ok "mod/ vazia: check lista só workspace e cursor" || { falha "mod/ vazia: check não lista exatamente 2 cópias"; cat "$T/out"; }
+espera_rc "mod/ vazia: check com busca em dia" 0 env NUMIH_HOME="$HV" "$SYNC" check
+grep -qF '*' "$T/out" && falha "mod/ vazia: check (busca) citou «*»" || ok "mod/ vazia: check (busca) sem «*»"
+espera_rc "mod/ vazia: sync" 0 env NUMIH_HOME="$HV" "$SYNC" sync
+grep -qF "$HV/mod/" "$T/out" && falha "mod/ vazia: sync tentou uma cópia em mod/" || ok "mod/ vazia: sync sem entrada falsa"
+[ "$(ls -A "$HV/mod")" = "" ] && ok "mod/ vazia: continua vazia" || { falha "mod/ vazia: ganhou conteúdo"; ls -la "$HV/mod"; }
 espera_rc "sync inclui mod/" 0 "$SYNC" sync
 grep -q "^lib: em dia" "$T/out" && ok "mod/lib sincronizado no sync" || falha "mod/lib fora do sync"
 
@@ -794,6 +832,10 @@ for sig in TERM HUP KILL; do
     espera_rc "$sig: check aponta a pasta vazia" 1 env NUMIH_HOME="$HS" NUMIH_REMOTE_BASE="$T/remotos" "$SYNC" check --no-fetch
     tem "$sig: motivo no check" "^numih-sync: erro: lib: $HS/mod/lib é uma pasta vazia \(sobra de um clone interrompido\); rode: numih-sync sync$"
     grep -q "não é repositório git" "$T/out" && falha "$sig: check ainda diz «não é repositório git»" || ok "$sig: check não diz «não é repositório git»"
+    # o check para na pasta vazia: nenhum git roda nela e só uma linha a cita
+    grep -q 'fatal:' "$T/out" && falha "$sig: check rodou git na pasta vazia" || ok "$sig: check não roda git na pasta vazia"
+    grep -q "origin é" "$T/out" && falha "$sig: check seguiu até a origin na pasta vazia" || ok "$sig: check não segue até a origin"
+    [ "$(grep -cF "$HS/mod/lib" "$T/out")" = 1 ] && ok "$sig: check cita a pasta vazia uma só vez" || { falha "$sig: check cita a pasta vazia mais de uma vez"; cat "$T/out"; }
     if [ "$sig" = KILL ]; then
       espera_rc "$sig: mod lib seguinte funciona" 0 env NUMIH_HOME="$HS" NUMIH_REMOTE_BASE="$T/remotos" "$SYNC" mod lib
     else

@@ -172,9 +172,9 @@ Duas execuções simultâneas se serializam por uma trava (`flock` em
 ## Testes
 
 ```bash
-bash numih/test-numih-sync.sh   # 558 verificações com remotos git locais num tmp próprio
+bash numih/test-numih-sync.sh   # 585 verificações com remotos git locais num tmp próprio
 bun test numih/                 # 14 testes do gerador do mapa (repositório git, fixtures, gh falso)
-bash numih/mutacoes.sh          # 63 mutações (IDs A1, S22…S44, B1…B6, V01, T07, M01…M04, M11, M11b, M13, C5a/C5b, N1/N1m, F1/F2, V1…V21, E1…E6); todas precisam morrer
+bash numih/mutacoes.sh          # 66 mutações (IDs A1, S22…S44, B1…B6, V01, T07, M01…M04, M11, M11b, M13, C5a/C5b, N1/N1m, F1/F2, V1…V21, E1…E6, P5, P6, P12); todas precisam morrer
 ```
 
 Algumas verificações são estruturais, porque o comportamento não muda sem a
@@ -189,7 +189,8 @@ comando de todo clone.
 Sinais no próprio `numih-sync` durante um clone lento (remoto que pendura):
 para TERM, HUP e KILL no PID, o teste confere que o script morre pelo sinal,
 que nada do clone sobra, que a pasta fica vazia (a sobra reproduzida), que o
-`check` aponta a pasta vazia, que o `sync` (TERM, HUP) ou o `mod lib` (KILL)
+`check` aponta a pasta vazia e para nela (nenhum git roda na pasta e só uma
+linha a cita), que o `sync` (TERM, HUP) ou o `mod lib` (KILL)
 seguinte a remove e clona de novo, e que o `check` final fica em dia. Para
 INT, no grupo (Ctrl-C) e só no PID, confere que a pasta é apagada na hora e
 que o `mod lib` seguinte clona.
@@ -198,7 +199,11 @@ A limpeza do clone também é testada por partes: o `apagar_parcial` é extraíd
 do script e chamado com um id que bate com o caminho, para que cada guarda
 recuse sozinha (link simbólico, o que não é diretório, pasta fora de casa
 por um pai que é link) e para o `rm` que falha (aviso e código 1). Uma cópia
-vizinha em `mod/` prova que só a pasta do clone é apagada. Um `mkdir` falso
+vizinha em `mod/` e vizinhos de nome parecido (`<nome>.bak`, `<nome>2`,
+`<nome>-x`) provam que só a pasta do clone é apagada. A `guarda_copia`,
+extraída do mesmo jeito, recusa a pasta vazia com código 1 exato, sem rodar
+git nela. Com `mod/` existente e vazia, `check` e `sync` listam só workspace e
+cursor (nenhuma cópia falsa `*`). Um `mkdir` falso
 cria a pasta do clone (de outro dono) logo antes do `mkdir` dela, e um `ls`
 falso diz «vazia» para uma pasta com conteúdo: nos dois casos nada alheio é
 apagado (o `mkdir` sem `-p` e o `rmdir` são as barreiras).

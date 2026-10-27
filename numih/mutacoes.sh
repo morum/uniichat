@@ -82,6 +82,9 @@ E3	bin/numih-sync	sync	  [ -z "$c" ]\n}	  true\n}
 E4	bin/numih-sync	sync	  if pasta_vazia "$dir"; then\n    if ! rmdir	  if false; then\n    if ! rmdir
 E5	bin/numih-sync	sync	  if pasta_vazia "$dir"; then\n    erro	  if false; then\n    erro
 E6	bin/numih-sync	sync	if ! rmdir -- "$dir" 2>/dev/null; then	if ! rm -rf -- "$dir" 2>/dev/null; then
+P5	bin/numih-sync	sync	      [ -d "$r" ] || continue\n	
+P6	bin/numih-sync	sync	clone interrompido); rode: numih-sync sync"; return 1	clone interrompido); rode: numih-sync sync"; return 0
+P12	bin/numih-sync	sync	if rm -rf -- "$dir"; then	if rm -rf -- "$dir" "$dir.bak"; then
 TABELA
 )"
 
