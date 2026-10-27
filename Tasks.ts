@@ -2444,8 +2444,10 @@ export function promises_said(said: string[]): string {
 // What Unii asks of the user (a question, a decision, an order to give)
 // is a task of the user's, or it ends lost in the chat (P87): a turn
 // whose last reply asks the user something with no task of the user's
-// about it gets one, "Pergunta sem pendência", made by the serve, and a
-// note (Server.ts Chat.asked).
+// about it gets a task of Unii's, "Pergunta sem pendência" (task_asked,
+// P112: each sentence with the reply it came from, not in the user's
+// "Agora"; Unii asks the user with a task of theirs, or closes it as a
+// false alarm), made by the serve, and a note (Server.ts Chat.asked).
 //
 // A heuristic, in Portuguese (some English), on the reply outside code
 // (``` blocks, `inline`), quotes (> lines, “…”, "…", «…») and headings
@@ -2473,7 +2475,9 @@ export function promises_said(said: string[]): string {
 //   owner_name: "Depende da ordem do Guilherme.") does; nor "me avise
 //   se/caso" on an event ("Me avise se falhar.", "Se falhar, me avise.":
 //   ASK_NOTIFY_IF, ASK_NOTIFY_BEFORE; "Me avise caso aprove." asks), nor
-//   "você decide" by contrast ("Ele não decide, você decide."), while
+//   "você decide" by contrast ("Ele não decide, você decide."), nor a
+//   rule of Unii's ("PR, merge e reinício só quando você mandar.":
+//   ASK_ONLY_WHEN, P112), while
 //   "Falta só a sua aprovação." and "Não está ok?" ask (P87 #3);
 // - but one reporting a question ("Enzo perguntou: …?", "Perguntei ao
 //   Enzo se quer que eu mescle": ASK_REPORTED) only if it asks in words
@@ -2594,6 +2598,10 @@ const ASK_NOTIFY_BEFORE = new RegExp("^\\s*(?:e\\s+|mas\\s+)?(?:se|caso)\\s+(?!"
 // who doesn't, in the clause before: "Ele não decide, você decide." (P87
 // #3, B1); "Não, você decide." still asks
 const ASK_WHO_VERB = /\b(decide|escolhe|manda|define)\b/;
+// "só quando" (no accents, lower) just before a request on the user's
+// will: a rule Unii keeps ("PR, merge e reinício só quando você
+// mandar.", P112), not a request
+const ASK_ONLY_WHEN = /\b(?:so|somente|apenas|unicamente|exclusivamente)\s+$/;
 
 // whether a sentence (folded) asks in words (ASK_WORDS), one request in
 // it not negated just before (ASK_NEGATION), nor an instruction on an
@@ -2609,6 +2617,11 @@ function ask_in_words(s: string): boolean {
     const clause = parts.pop() ?? "";
     const before = (clause.match(/[a-z0-9]+/g) ?? []).slice(-2).join(" ");
     if (ASK_NEGATION.test(before) || ASK_NOTIFY_IF.test(s.slice(at))) {
+      continue;
+    }
+    // a rule of Unii's, not a request: "PR, merge e reinício só quando
+    // você mandar." (P112); "Mesclo quando você mandar." still asks
+    if (/^quando\b/.test(s.slice(at)) && ASK_ONLY_WHEN.test(s.slice(0, at))) {
       continue;
     }
     if (/^me (?:avise|avisa|fale|fala)\b/.test(s.slice(at)) && clause.trim() === "" && ASK_NOTIFY_BEFORE.test(parts[parts.length - 1] ?? "")) {
@@ -2725,31 +2738,80 @@ export function question_tasked(s: Store, said: string, since: number): boolean 
 
 export const ASKED_TITLE = "Pergunta sem pendência";
 
-// the task a question without one gets (the user's, a decision from the
-// chat, a text field for the answer): one open already gets these
-// questions added (its title is one); else why not (a full list)
-export function task_asked(s: Store, said: string[], now: number): Task | string {
-  const lines = said.map((x) => "“" + x + "”").join("\n");
-  const detail = "O Unii terminou o turno perguntando ou pedindo algo a você sem abrir pendência (trava da P87):\n" + lines + "\nResponda no campo abaixo; a resposta chega ao Unii.";
-  const had = s.tasks.find((t) => t.state === "open" && t.assignee === "user" && t.title === ASKED_TITLE);
+// where a turn's questions came from: the reply of Unii's that ended it
+// (Server.ts Chat.reply_msg): its id in the chat (null: not known), its
+// text, when it was logged (ISO; null: not known)
+export type AskFrom = { id: number | null; text: string; date: string | null };
+
+// the task's head (its detail starts so), its next step, what makes it
+// done, how long Unii has for it (P112: the task is Unii's, not the
+// user's: Unii reads where the questions came from and asks the user
+// with a task of theirs, or closes it as a false alarm)
+export const ASKED_HEAD = "O Unii terminou um turno perguntando ou pedindo algo ao usuário sem abrir pendência (trava da P87). Esta tarefa é do Unii, não do usuário. Para cada frase abaixo, leia a mensagem de origem e decida: se era pergunta real, abra a pendência do usuário com task_add (assignee user, com as opções) e feche esta tarefa citando a nova pendência; se era alarme falso, feche esta tarefa com o motivo.";
+export const ASKED_STEP = "Ler a mensagem de origem; se era pergunta real, abrir pendência do usuário com task_add e opções; se alarme falso, fechar com motivo.";
+export const ASKED_DONE = "pendência real aberta ao usuário (task_add, assignee user) ou esta tarefa fechada com o motivo do alarme falso";
+export const ASKED_DUE = 4 * 3600e3;
+// the most of the origin's text a block quotes
+const ASKED_QUOTE = 160;
+
+// a block of the task's detail: the origin, then its sentences, each
+// with what to decide (so no sentence is ever read without its origin)
+function asked_block(said: string[], from: AskFrom | null): string {
+  const when = from === null || from.date === null ? NaN : Date.parse(from.date);
+  const d = new Date(when);
+  const two = (n: number) => String(n).padStart(2, "0");
+  const at = Number.isNaN(when) ? "" : ", em " + two(d.getDate()) + "/" + two(d.getMonth() + 1) + " às " + two(d.getHours()) + ":" + two(d.getMinutes());
+  const text = from === null ? "" : text_line(from.text, 100000);
+  const quote = text === "" ? "" : ", que começa assim: “" + (text.length > ASKED_QUOTE ? text.slice(0, ASKED_QUOTE).trimEnd() + "…" : text) + "”";
+  const head = from === null || from.id === null ? "Mensagem de origem: a última resposta do Unii no turno (número não disponível)" + at + quote + "." : "Mensagem de origem: nº " + from.id + ", resposta do Unii" + at + quote + ".";
+  return [head, "Frases a decidir (pergunta real ou alarme falso):", ...said.map((x) => "• “" + x + "”")].join("\n");
+}
+
+// the task's detail: its head, then the blocks it had (a task of the
+// user's made before P112: one block, said so) and the new one; the
+// oldest blocks go first, whole, as the detail outgrows DETAIL
+function asked_detail(prev: string, block: string): string {
+  const old = prev.startsWith(ASKED_HEAD) ? prev.slice(ASKED_HEAD.length) : prev.trim() === "" ? "" : "Registro anterior, feito antes desta tarefa ser do Unii:\n" + prev.trim();
+  const blocks = old.split(/\n\s*\n/).map((x) => x.trim()).filter((x) => x !== "");
+  blocks.push(block);
+  const join = () => ASKED_HEAD + "\n\n" + blocks.join("\n\n");
+  while (blocks.length > 1 && join().length > DETAIL) {
+    blocks.shift();
+  }
+  return join().slice(0, DETAIL);
+}
+
+// the task a question without one gets: Unii's (P112), no fields, its
+// next step due in ASKED_DUE, each sentence with its origin (`from`);
+// one open already (Unii's, or the user's made before P112, made
+// Unii's) gets these added; else why not (a full list)
+export function task_asked(s: Store, said: string[], now: number, from: AskFrom | null = null): Task | string {
+  const block = asked_block(said, from);
+  const due = new Date(now + ASKED_DUE).toISOString();
+  const had = s.tasks.find((t) => t.state === "open" && t.title === ASKED_TITLE);
   if (had !== undefined) {
     const at = new Date(now).toISOString();
-    const next: Task = { ...had, detail: detail_join(had.detail, lines, DETAIL), changed: at, moved: at, ready: at };
+    const keep = had.assignee === "unii" && had.next_due !== null && Date.parse(had.next_due) > now;
+    const next: Task = {
+      ...had, assignee: "unii", kind: "action", fields: [], draft: {}, answers: null,
+      detail: asked_detail(had.detail, block), done_when: ASKED_DONE, next_step: ASKED_STEP, next_due: keep ? had.next_due : due,
+      changed: at, moved: at, ready: at,
+    };
     s.tasks[s.tasks.indexOf(had)] = next;
     tasks_save(s);
     return next;
   }
   return task_new(s, {
-    title: ASKED_TITLE, detail, assignee: "user", origin: "chat", kind: "decision",
-    fields: [{ id: "resposta", label: "Sua resposta", kind: "text", required: true }],
-    done_when: "o usuário responder; o Unii executa o que foi decidido",
+    title: ASKED_TITLE, detail: asked_detail("", block), assignee: "unii", origin: "chat", kind: "action",
+    done_when: ASKED_DONE, next_step: ASKED_STEP, next_due: due,
   }, "trava", now);
 }
 
-// the note the turn gets (the user's language)
+// the note the turn gets (the user's language): the task is Unii's, to
+// resolve
 export function questions_said(said: string[], task: Task | string): string {
   const q = said.map((x) => "“" + x + "”").join(", ");
   return typeof task === "string"
-    ? "Pergunta sem pendência: o Unii perguntou " + q + " sem abrir pendência, e não foi possível abri-la (" + task + "). Unii: abra-a com task_add (assignee user, com as opções)."
-    : "Pergunta sem pendência: o Unii perguntou " + q + " sem abrir nem atualizar, neste turno, uma pendência sua. Registrei na " + task.id + ", para não se perder. Unii: da próxima vez, abra a pendência (task_add, assignee user, com as opções) no mesmo turno da pergunta.";
+    ? "Pergunta sem pendência: o Unii perguntou " + q + " sem abrir nem atualizar, neste turno, uma pendência do usuário, e não foi possível registrar a tarefa do Unii (" + task + "). Unii: releia a sua última resposta; se era pergunta real, abra a pendência do usuário com task_add (assignee user, com as opções); se era alarme falso, não faça nada."
+    : "Pergunta sem pendência: o Unii perguntou " + q + " sem abrir nem atualizar, neste turno, uma pendência do usuário. Registrei na " + task.id + ", tarefa do Unii, não do usuário. Unii: resolva a " + task.id + ": leia a mensagem de origem; se era pergunta real, abra a pendência do usuário com task_add (assignee user, com as opções) e feche a " + task.id + "; se era alarme falso, feche a " + task.id + " com o motivo.";
 }

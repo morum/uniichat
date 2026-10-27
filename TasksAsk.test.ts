@@ -9,7 +9,10 @@ import { expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import * as Deps from "./TaskDeps.ts";
+import * as TaskPush from "./TaskPush.ts";
 import * as T from "./Tasks.ts";
+import * as View from "./View.ts";
 
 const asks = (text: string, ids: string[] = []) => T.questions_in(text, new Set(ids));
 
@@ -219,30 +222,113 @@ test("at most 3, each once", () => {
   expect(asks("Mesclo? Mesclo? Aplico? Reinicio? Publico?")).toEqual(["Mesclo?", "Aplico?", "Reinicio?"]);
 });
 
-test("a question without a task gets one of the user's: a decision from the chat, a text field; one open gets the next added", () => {
+test("a question without a task gets one of Unii's (P112): no fields, its next step due in 4 h, each sentence with its origin; one open gets the next added", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ask-"));
   const s = T.tasks_load(dir);
   const now = Date.now();
   expect(T.question_tasked(s, "Quer que eu mescle?", now)).toBe(false);
-  const t = T.task_asked(s, ["Quer que eu mescle?"], now) as T.Task;
+  const from = { id: 4823, text: "Os três estão aprovados, sem ressalvas. Quer que eu mescle?", date: new Date(now).toISOString() };
+  const t = T.task_asked(s, ["Quer que eu mescle?"], now, from) as T.Task;
   expect(t.title).toBe(T.ASKED_TITLE);
-  expect(t.assignee).toBe("user");
-  expect(t.origin).toBe("chat");
-  expect(t.kind).toBe("decision");
-  expect(t.fields.map((f) => [f.id, f.kind, f.required])).toEqual([["resposta", "text", true]]);
-  expect(t.detail).toContain("“Quer que eu mescle?”");
-  expect(T.question_tasked(s, "Quer que eu mescle?", now)).toBe(true);
-  const u = T.task_asked(s, ["Aplico em hom?"], now + 1000) as T.Task;
+  expect([t.assignee, t.origin, t.kind, t.by]).toEqual(["unii", "chat", "action", "trava"]);
+  expect(t.fields).toEqual([]);
+  expect(t.choices).toEqual([]);
+  expect(t.next_step).toBe(T.ASKED_STEP);
+  expect(Date.parse(t.next_due!)).toBe(now + 4 * 3600e3);
+  expect(t.done_when).toBe(T.ASKED_DONE);
+  expect(t.done_when).toContain("pendência real aberta ao usuário");
+  expect(t.detail).toStartWith(T.ASKED_HEAD);
+  expect(t.detail).toContain("Mensagem de origem: nº 4823, resposta do Unii, em ");
+  expect(t.detail).toContain("que começa assim: “Os três estão aprovados, sem ressalvas. Quer que eu mescle?”");
+  expect(t.detail).toContain("• “Quer que eu mescle?”");
+  // Unii's: it doesn't spare the next question (only the user's do)
+  expect(T.question_tasked(s, "Quer que eu mescle?", now)).toBe(false);
+  // the next question, while it's open: added to it with its own origin
+  const u = T.task_asked(s, ["Aplico em hom?"], now + 1000, { id: 4830, text: "CI verde. Aplico em hom?", date: null }) as T.Task;
   expect(u.id).toBe(t.id);
-  expect(u.detail).toContain("“Aplico em hom?”");
+  expect(u.assignee).toBe("unii");
+  expect(u.next_due).toBe(t.next_due);
+  expect(u.detail).toContain("nº 4823");
+  expect(u.detail).toContain("Mensagem de origem: nº 4830, resposta do Unii, que começa assim: “CI verde. Aplico em hom?”.\nFrases a decidir (pergunta real ou alarme falso):\n• “Aplico em hom?”");
+  expect(u.detail.indexOf("nº 4823")).toBeLessThan(u.detail.indexOf("nº 4830"));
   expect(s.tasks.filter((x) => x.state === "open")).toHaveLength(1);
   // a task of Unii's made: not the user's question's
   const later = now + 60e3;
   T.task_new(s, { title: "Conferir o deploy", assignee: "unii", done_when: "CI lido", next_step: "ler" }, "main", later);
   expect(T.question_tasked(s, "Faço o deploy hoje?", later)).toBe(false);
-  // Unii said it in a thread of the user's: it is
-  T.task_reply(s, t.id, "CI verde. Faço o deploy hoje?", later + 10);
-  expect(T.question_tasked(s, "Faço o deploy hoje?", later)).toBe(true);
+  T.tasks_forget();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("each sentence of the task has its origin: no sentence alone, even as the detail outgrows its most (P112)", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ask-"));
+  const s = T.tasks_load(dir);
+  const now = Date.now();
+  const long = "Relato longo ".repeat(40) + "Mesclo?";
+  let t: T.Task | undefined;
+  for (let i = 0; i < 12; i++) {
+    t = T.task_asked(s, ["Mesclo o PR " + i + "?", "Aplico o " + i + " em hom?", "Reinicio o serve " + i + "?"], now + i, { id: 100 + i, text: long, date: null }) as T.Task;
+  }
+  expect(t!.detail.length).toBeLessThanOrEqual(T.DETAIL);
+  expect(t!.detail).toStartWith(T.ASKED_HEAD);
+  // the newest kept, the oldest gone whole
+  expect(t!.detail).toContain("nº 111");
+  expect(t!.detail).not.toContain("nº 100,");
+  expect(t!.detail).not.toContain("PR 0?");
+  // every block: its origin, then its sentences
+  const blocks = t!.detail.slice(T.ASKED_HEAD.length).trim().split(/\n\n/);
+  for (const b of blocks) {
+    expect(b).toStartWith("Mensagem de origem: nº ");
+    expect(b.split("\n").slice(2).every((l) => l.startsWith("• “"))).toBe(true);
+  }
+  // the text quoted is cut, with an ellipsis
+  expect(t!.detail).toContain("Relato longo Relato longo");
+  expect(t!.detail).toContain("…”");
+  // the origin unknown: said so
+  const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), "ask-"));
+  T.tasks_forget();
+  const s2 = T.tasks_load(dir2);
+  const v = T.task_asked(s2, ["Mesclo?"], now) as T.Task;
+  expect(v.detail).toContain("Mensagem de origem: a última resposta do Unii no turno (número não disponível).");
+  // when it was logged, in the server's local time
+  const w = T.task_asked(s2, ["Aplico?"], now, { id: 9, text: "Aplico?", date: new Date(2026, 9, 27, 9, 5).toISOString() }) as T.Task;
+  expect(w.detail).toContain("Mensagem de origem: nº 9, resposta do Unii, em 27/10 às 09:05, que começa assim: “Aplico?”.");
+  T.tasks_forget();
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(dir2, { recursive: true, force: true });
+});
+
+test("a \"Pergunta sem pendência\" of the user's, made before P112, open: made Unii's, the next added, its fields gone", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ask-"));
+  const s = T.tasks_load(dir);
+  const now = Date.now();
+  const old = T.task_new(s, {
+    title: T.ASKED_TITLE, detail: "O Unii terminou o turno perguntando ou pedindo algo a você sem abrir pendência (trava da P87):\n“Mesclo?”\nResponda no campo abaixo; a resposta chega ao Unii.", assignee: "user", origin: "chat", kind: "decision",
+    fields: [{ id: "resposta", label: "Sua resposta", kind: "text", required: true }], done_when: "o usuário responder",
+  }, "trava", now - 3600e3) as T.Task;
+  expect(old.assignee).toBe("user");
+  const t = T.task_asked(s, ["Aplico?"], now, { id: 7, text: "Aplico?", date: null }) as T.Task;
+  expect(t.id).toBe(old.id);
+  expect([t.assignee, t.kind, t.fields, t.next_step]).toEqual(["unii", "action", [], T.ASKED_STEP]);
+  expect(Date.parse(t.next_due!)).toBe(now + 4 * 3600e3);
+  expect(t.detail).toStartWith(T.ASKED_HEAD);
+  expect(t.detail).toContain("Registro anterior, feito antes desta tarefa ser do Unii:\nO Unii terminou o turno");
+  expect(t.detail).toContain("Mensagem de origem: nº 7");
+  expect(s.tasks.filter((x) => x.state === "open")).toHaveLength(1);
+  T.tasks_forget();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("the task isn't the user's move: not in \"Agora\", nor counted nor pushed (P112)", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ask-"));
+  const s = T.tasks_load(dir);
+  const t = T.task_asked(s, ["Quer que eu mescle?"], Date.now(), { id: 1, text: "Quer que eu mescle?", date: null }) as T.Task;
+  const blocked = Deps.blocked_ids(s.tasks);
+  expect(Deps.user_move(t, blocked)).toBe(false);
+  expect(View.desk_group(t, blocked)).toBe("others");
+  expect(View.desk_list(s.tasks).map((g) => [g.group, g.tasks.map((x) => x.id)])).toEqual([["others", [t.id]]]);
+  expect(TaskPush.turn_count(s.tasks)).toBe(0);
+  expect(TaskPush.actionable(s.tasks)).toEqual([]);
   T.tasks_forget();
   fs.rmSync(dir, { recursive: true, force: true });
 });
@@ -270,10 +356,24 @@ test("only a task of the user's about the question spares it (B2)", () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test("the note says the task made, or why none", () => {
+test("the note says the task made is Unii's, to resolve, or why none", () => {
   const t = { id: "P9" } as T.Task;
-  expect(T.questions_said(["Mesclo?"], t)).toStartWith("Pergunta sem pendência: o Unii perguntou “Mesclo?” sem abrir nem atualizar, neste turno, uma pendência sua. Registrei na P9");
-  expect(T.questions_said(["Mesclo?"], "The list has 100 open tasks")).toContain("não foi possível abri-la");
+  expect(T.questions_said(["Mesclo?"], t)).toBe("Pergunta sem pendência: o Unii perguntou “Mesclo?” sem abrir nem atualizar, neste turno, uma pendência do usuário. Registrei na P9, tarefa do Unii, não do usuário. Unii: resolva a P9: leia a mensagem de origem; se era pergunta real, abra a pendência do usuário com task_add (assignee user, com as opções) e feche a P9; se era alarme falso, feche a P9 com o motivo.");
+  const none = T.questions_said(["Mesclo?"], "The list has 100 open tasks");
+  expect(none).toContain("não foi possível registrar a tarefa do Unii (The list has 100 open tasks)");
+  expect(none).toContain("abra a pendência do usuário com task_add");
+});
+
+test("\"PR, merge e reinício só quando você mandar.\" is a rule of Unii's, not a question (P112)", () => {
+  expect(asks("PR, merge e reinício só quando você mandar.")).toEqual([]);
+  expect(asks("Sem merge sem ordem: PR, merge e reinício só quando você mandar.")).toEqual([]);
+  expect(asks("Merge somente quando você mandar.")).toEqual([]);
+  expect(asks("Mesclei o #23. PR, merge e reinício só quando você mandar.")).toEqual([]);
+  // an offer on the user's order still asks; so does a request beside it
+  expect(asks("Mesclo quando você mandar.")).toEqual(["Mesclo quando você mandar."]);
+  expect(asks("Quando você mandar, reinicio.")).toEqual(["Quando você mandar, reinicio."]);
+  expect(asks("PR, merge e reinício só quando você mandar: aguardo sua ordem.")).toEqual(["PR, merge e reinício só quando você mandar: aguardo sua ordem."]);
+  expect(asks("Reinicio só quando você mandar?")).toEqual(["Reinicio só quando você mandar?"]);
 });
 
 test("\"Me avise caso discorde.\", \"caso não queira\" and \"Se mesclar, me avise.\" ask (P87 #5, B2 to B4)", () => {

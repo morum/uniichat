@@ -78,9 +78,11 @@ Features
   it, or it's opened again; nothing is erased. A reply of Unii's that
   promises something for later with no task of its own gets a note; one
   that asks you something (a question, a decision, an order to give) with
-  no task of yours about it gets one, "Pergunta sem pendência" (a decision
-  with a text field for your answer, the question in its detail), made by
-  the serve, and a note (`Tasks.questions_in`: a heuristic; quotes, code,
+  no task of yours about it gets a task of Unii's, "Pergunta sem
+  pendência" (not in your Agora: each sentence with the reply it came
+  from, its id and text; Unii reads it and opens a task of yours with the
+  choices, or closes it as a false alarm, due in 4 h), made by the serve,
+  and a note (`Tasks.questions_in`: a heuristic; quotes, code,
   headings, questions Unii answers itself, another's questions reported and
   questions to others don't count). A task of yours is the question's if
   its id is in the question's paragraph, if it was made in that turn with

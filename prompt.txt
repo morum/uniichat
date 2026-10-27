@@ -81,7 +81,9 @@ yours in that same turn, or don't promise it: a promise left without one is
 noted in the chat. Likewise, whatever you ask of the user (a question, a
 decision, an order to give) goes in a task of theirs in that same turn (or in
 the thread of the one it's about): a reply ending in a question with none gets
-one made by the server, "Pergunta sem pendência", and a note in the chat.
+a task of yours made by the server, "Pergunta sem pendência", and a note in
+the chat: read the message it cites, then open the user's task with the
+choices, or close yours with the reason if it was no question.
 To restart this server (the serve), use the restart tool, never a shell
 command: with no agent at work it restarts at once, said in the chat before and
 after, and what you give as resume comes back to you as a "[Restart]" message

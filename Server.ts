@@ -500,7 +500,7 @@ export namespace Chat {
       chat.wait = [];
       chat.busy = false;
       Chat.live(chat, null, []);
-      const reply = Chat.reply(chat, began);
+      const reply = Chat.reply_msg(chat, began);
       Chat.talked(chat);
       Chat.promised(chat, began);
       Chat.asked(chat, began, reply);
@@ -810,35 +810,51 @@ export namespace Chat {
   // as it ended; null if it didn't end in one (a note last: a halt, a
   // failure)
   export function reply(chat: Chat, since = 0): string | null {
+    return Chat.reply_msg(chat, since)?.text ?? null;
+  }
+
+  // the same, with where it is: its first page's id in the chat and
+  // when it was logged (the origin a "Pergunta sem pendência" task
+  // quotes, Tasks.AskFrom)
+  export function reply_msg(chat: Chat, since = 0): Tasks.AskFrom | null {
     const pages: string[] = [];
+    let id: number | null = null;
+    let date: string | null = null;
     for (let i = chat.mem.count - 1; i >= 0 && pages.length < 8; i--) {
       const m = Memory.message(chat.mem, i);
       if (m === null || m.kind !== "unii" || Date.parse(m.date ?? "") < since) {
         break;
       }
       pages.unshift(m.text);
+      id = i;
+      date = m.date ?? null;
     }
-    return pages.length === 0 ? null : pages.join("");
+    return pages.length === 0 ? null : { id, text: pages.join(""), date };
   }
 
   // a turn ended whose last reply asks the user something (a question,
   // a decision, an order to give: Tasks.questions_in) with no task of the
   // user's about it (Tasks.question_tasked: made in the turn with words of
   // it, or the thread Unii said it in; another, about something else,
-  // doesn't spare it): the serve makes one, "Pergunta sem pendência"
-  // (Tasks.task_asked), and a note says so in the chat, so the question
-  // isn't lost in it (P87)
-  export function asked(chat: Chat, began: number, reply: string | null): void {
+  // doesn't spare it): the serve makes a task of Unii's, "Pergunta sem
+  // pendência" (Tasks.task_asked: each sentence with the reply it came
+  // from, its id and text; not in the user's "Agora", P112), and a note
+  // says so in the chat, so the question isn't lost in it (P87): Unii
+  // asks the user with a task of theirs, or closes it as a false alarm.
+  // `reply`: the turn's last reply (Chat.reply_msg; a text alone: its
+  // id not known)
+  export function asked(chat: Chat, began: number, reply: Tasks.AskFrom | string | null): void {
     if (reply === null) {
       return;
     }
+    const from: Tasks.AskFrom = typeof reply === "string" ? { id: null, text: reply, date: null } : reply;
     const s = Tasks.tasks_load(chat.mem.dir);
     const open = new Set(s.tasks.filter((t) => t.state === "open" && t.assignee === "user").map((t) => t.id));
-    const said = Tasks.questions_in(reply, open, config.OWNER_NAMES).filter((q) => !Tasks.question_tasked(s, q, began));
+    const said = Tasks.questions_in(from.text, open, config.OWNER_NAMES).filter((q) => !Tasks.question_tasked(s, q, began));
     if (said.length === 0) {
       return;
     }
-    Chat.note(chat, Tasks.questions_said(said, Tasks.task_asked(s, said, Date.now())));
+    Chat.note(chat, Tasks.questions_said(said, Tasks.task_asked(s, said, Date.now(), from)));
   }
 
   // a turn's reply goes to no phone nor browser: only the pending list's
