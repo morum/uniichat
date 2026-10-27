@@ -24,6 +24,8 @@ msg=$(cat)
 sid="sess-1"
 resume=""
 model=""
+# its arguments as given (the loop below shifts them away)
+argv=$(printf '%s ' "$0" "$@" | tr -d '"')
 while [ $# -gt 0 ]; do
   case "$1" in
     --resume) resume="$2"; shift ;;
@@ -85,7 +87,7 @@ case "$msg" in
     touch "$PWD/silentagain"; init; say "comecei"; sleep 30 ;;
   *MODE:argv*)
     init
-    a=$(printf '%s ' "$0" "$@" | tr -d '"')
+    a="$argv"
     k=$([ -n "$CURSOR_API_KEY" ] && echo "env:$CURSOR_API_KEY" || echo "env:none")
     say "argv"; done_ "ARGV=$a|KEY=$k" ;;
   *MODE:umask*)
@@ -245,6 +247,18 @@ describe("Cursor.variant", () => {
     expect(Cursor.failure("Cannot use this model: x").off).toBe(true);
     const busy = Cursor.failure("Error: [internal_error] boom");
     expect([busy.stop, busy.off]).toEqual(["down", false]);
+  });
+
+  test("um limite dito só como cota (quota): é limite, não falha do fornecedor", () => {
+    const turn = Cursor.failure("Error: [quota_exceeded] You have exceeded your monthly quota");
+    expect(turn.limit).toBeDefined();
+    expect(turn.stop).toBeUndefined();
+  });
+
+  test("uma cobrança recusada (billing): vale para toda chamada (off), o fallback segue", () => {
+    const turn = Cursor.failure("Error: Your billing details need to be updated");
+    expect(turn.limit).toBeUndefined();
+    expect([turn.stop, turn.off]).toEqual(["down", true]);
   });
 
   // what failure() logs to the operator (console.error), each line it printed
@@ -573,6 +587,20 @@ describe("isolation", () => {
     expect(Cursor.command(BIN, null, bare, "m", null).env.CURSOR_API_KEY).toBeUndefined();
     config.KEYS.cursor = saved;
     fs.rmSync(bare.dir, { recursive: true, force: true });
+  });
+
+  test("o espaço de trabalho confiado (--trust), com e sem sandbox, e a CLI o recebe ao rodar", async () => {
+    const room = Cursor.room(ask("x"));
+    try {
+      for (const jail of [null, "/usr/bin/bwrap"]) {
+        expect(Cursor.command(BIN, jail, room, "m", null).args).toContain("--trust");
+      }
+    } finally {
+      fs.rmSync(room.dir, { recursive: true, force: true });
+    }
+    const { end } = await call(ask("MODE:argv"));
+    expect(end.ok).toBe(true);
+    expect(end.text.split("|KEY=")[0].split(" ")).toContain("--trust");
   });
 
   test("bwrap's arguments: its own pid and ipc, /run and /var/lib hidden, the CLI's version dir alone, under umask 077", () => {
