@@ -819,7 +819,7 @@ function row_cells(line) {
 }
 
 // Pick.ts
-var VENDORS = ["claude-api", "openai-api", "openai-sub", "claude-sub"];
+var VENDORS = ["claude-api", "openai-api", "openai-sub", "claude-sub", "cursor"];
 var OPUS = { label: "opus-5.5", id: "claude-opus-5-5", speeds: ["slow", "fast"] };
 var SONNET = { label: "sonnet-5.5", id: "claude-sonnet-5-5", speeds: ["slow"] };
 var HAIKU = { label: "haiku-5.5", id: "claude-haiku-5-5", speeds: ["slow"] };
@@ -829,11 +829,20 @@ var OPENAI = [
   { label: "gpt-6-astra", id: "gpt-6-astra", speeds: ["slow", "fast", "ultrafast"] }
 ];
 var PLAN = OPENAI.map((m) => ({ ...m, speeds: m.speeds.filter((s) => s !== "ultrafast") }));
+var CURSOR = [
+  OPUS,
+  SONNET,
+  HAIKU,
+  { label: "gpt-5.6-sol", id: "gpt-5.6-sol", speeds: ["slow", "fast"] },
+  { label: "grok-4.7", id: "grok-4.7", speeds: ["slow", "fast"] },
+  { label: "composer-2.5", id: "composer-2.5", speeds: ["slow", "fast"] }
+];
 var MODELS = {
   "claude-api": [OPUS, SONNET, HAIKU],
   "openai-api": OPENAI,
   "openai-sub": PLAN,
-  "claude-sub": [{ ...OPUS, speeds: ["slow"] }, SONNET, HAIKU]
+  "claude-sub": [{ ...OPUS, speeds: ["slow"] }, SONNET, HAIKU],
+  cursor: CURSOR
 };
 var EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 var SPEEDS = ["slow", "fast", "ultrafast"];
@@ -892,11 +901,17 @@ var Pick;
   }
   Pick2.move = move;
   function to_model(pick, label, vendors, { models }) {
-    const all = Pick.models(vendors, models).filter(([, m]) => m.label === label);
+    const all = Pick.models(vendors, models).filter(([v, m]) => m.label === label || v + ":" + m.label === label);
     const hit = all.find(([v]) => v === pick.vendor) ?? all[0];
     return hit === undefined ? null : Pick.on(pick, hit[0], hit[1]);
   }
   Pick2.to_model = to_model;
+  function names(vendors, labels) {
+    const all = Pick.models(vendors, labels);
+    const twins = all.filter(([v, m]) => Pick.twin(v, m.label, vendors) && labels.includes(m.label)).map(([v, m]) => v + ":" + m.label);
+    return [...new Set([...all.map(([, m]) => m.label), ...twins])];
+  }
+  Pick2.names = names;
   function twin(vendor, label, vendors) {
     return vendors.some((v) => v !== vendor && Pick.model(v, label) !== undefined);
   }
@@ -1497,7 +1512,7 @@ function task_turn_said(t, tasks, now, turn = null, blocked = blocked_ids(tasks)
   }
   if (t.talk === "unii") {
     const ago = ago_said(task_talk_since(t), now);
-    return { cls: "unii", lead: "Aguardando o Unii", text: "Você escreveu na conversa" + (ago === "" ? "" : " " + ago) + " e o Unii ainda não respondeu" + (turn === null ? "" : " (" + turn_why(turn) + ")") + ". Nada a fazer até ele responder." };
+    return { cls: "unii", lead: "Aguardando o Unii", text: "Você escreveu na conversa" + (ago === "" ? "" : " " + ago) + " e o Unii ainda não respondeu" + (turn === null ? "" : " (" + turn_why(turn) + ")") + ". A resposta chega aqui quando ele responder nesta conversa ou quando o turno dele terminar; se o servidor reiniciar sem turno a retomar, ela volta marcada “Unii não respondeu”. Nada a fazer até lá." };
   }
   if (outside_wait(t)) {
     const missed_wait = task_missed(t) ? " O Unii não respondeu à sua última mensagem na conversa (o turno terminou sem resposta)." : "";
@@ -1512,7 +1527,8 @@ function task_turn_said(t, tasks, now, turn = null, blocked = blocked_ids(tasks)
       return { cls: "user", lead: "Sua vez", text: missed + "O Unii aguarda você: " + (t.status_why ?? "algo seu") + ". Responda na conversa desta pendência." };
     }
     const left = task_fields_left(t);
-    const fill = left.length === 0 ? "" : "preencha " + (left.length === 1 ? "o campo obrigatório “" + left[0].label + "”" : left.length + " campos obrigatórios") + " e ";
+    const one = left.length === 1 ? left[0] : undefined;
+    const fill = left.length === 0 ? "" : "preencha " + (one !== undefined ? "o campo obrigatório “" + one.label + "”" : left.length + " campos obrigatórios") + " e ";
     const rec = task_rec(t);
     const pick = t.choices.length === 0 ? "conclua ou descarte" : t.choices.length === 1 ? "conclua como “" + t.choices[0] + "” ou descarte" : "escolha uma das " + t.choices.length + " opções" + (rec === null ? "" : " (recomendada: “" + rec + "”)");
     const late = task_late_said(t, blocked, now);
@@ -2597,6 +2613,7 @@ var SETTING = {
 var KEY = {
   anthropic: ["Anthropic key", "For claude-api's models."],
   openai: ["OpenAI key", "For openai-api's models and dictation."],
+  cursor: ["Chave do Cursor", "Para os modelos do cursor, em vez da autenticação feita por `unii serve cursor`."],
   apns: ["APNs key", "The .p8 key the iOS app's pushes are signed with."]
 };
 var VENDOR_KEY = { "claude-api": "anthropic", "openai-api": "openai" };

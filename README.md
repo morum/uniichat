@@ -118,7 +118,8 @@ Features
   `/descartar`, `/reabrir`, `/avisar`.
 
 What this fork adds: one owner per server, no accounts or email; Claude
-and ChatGPT plans as vendors (`claude-sub`, `openai-sub`) beside API
+and ChatGPT plans as vendors (`claude-sub`, `openai-sub`), and a Cursor
+plan (`cursor`), beside API
 keys; profiles that fall back to the next model when one is out; waiting
 out usage limits; MCP servers (also run on a device); skills; image and
 video viewing; an editable user prompt and compaction prompt; a memory
@@ -145,9 +146,28 @@ newest release. The installer also moves data from older versions.
    `unii serve revoke <n>` (or `--all`) signs one out.
 3. **Pick a vendor.** In the web app, ☰ › Settings: vendors, models and
    API keys (kept in `~/.unii/keys.json`). For a plan instead of keys,
-   run `unii serve claude` (Claude) or `unii serve chatgpt` (ChatGPT) on
-   the server's computer, then pick `claude-sub` or `openai-sub`. Each
-   takes `logout` or `status`.
+   run `unii serve claude` (Claude), `unii serve chatgpt` (ChatGPT) or
+   `unii serve cursor` (Cursor) on the server's computer, then pick
+   `claude-sub`, `openai-sub` or `cursor`. Each takes `logout` or
+   `status`. Cursor (Cursor.ts) runs the Cursor CLI (`cursor-agent`,
+   installed with `curl https://cursor.com/install -fsS | bash`) in
+   bubblewrap (`bwrap`, needed): a read-only root, an empty home (of
+   `~/.local`, only the CLI's version dir), an empty `/tmp`, `/run` and
+   `/var/lib` (no session D-Bus, gpg-agent, keyring nor `docker.sock`;
+   only the DNS resolver's dir of `/run` is put back, read-only), its own
+   pid and ipc namespaces, umask 077 (so the CLI config it rewrites stays
+   0600), its own tools denied, ours over MCP. The network is shared: it
+   still reaches this host's ports and abstract sockets. It takes a
+   Cursor key on the Settings page instead of a sign-in, too (handed to
+   it in its environment, never on a command line). A message sent while
+   its turn runs goes in only as that turn ends (the CLI takes no input
+   mid-turn, unlike Claude Code): its session is resumed with it, told
+   that its reply was already shown, so it doesn't write that reply
+   again; the call's end (a subagent's report) holds both replies. Its
+   models: opus-5.5, sonnet-5.5 and haiku-5.5 (as at Claude's vendors),
+   gpt-5.6-sol, grok-4.7 and
+   composer-2.5; a subagent is put on it by `cursor:<model>` (spawn's
+   `model`), as a reviewer on `cursor:sonnet-5.5`.
 4. **Add devices.** On each computer Unii may work on, run `unii device
    https://your-server` once by hand: it prints a link and a code to
    confirm in your browser. Its work dir is `~/.unii/work`; its settings
@@ -183,6 +203,15 @@ Settings page). Each may also be set as `UNII_<KEY>`, which wins. Besides
   Add `"device": "<name>"` to run one on a device.
 - `after`: a shell command run after each turn.
 - `claude_sub`, `claude`, `chatgpt`: where the plans' sign-ins are kept.
+- `cursor_sub` (its calls' dirs, `~/.unii/cursor-sub` by default),
+  `cursor_login` (where its sign-in is kept, an XDG_CONFIG_HOME:
+  `~/.unii/cursor-sub/xdg` by default, `~/.config` for this computer's
+  own Cursor sign-in), `cursor` (the CLI's executable; by default
+  `cursor-agent` or `agent`, on the PATH or in `~/.local/bin`),
+  `cursor_sandbox` (`bwrap`, the default, or `off`: never on a server
+  others' code may reach), `cursor_idle` (seconds a turn may go without
+  a word, no tool running, before it's stopped and asked once to go on:
+  600).
 - `apple`, `apns`: the iOS app's (ios/) App ID and push key id.
 - `task_stall`: hours a task of Unii's may stand still, with no
   `next_due`, before it's overdue (4 by default; read at the start).
