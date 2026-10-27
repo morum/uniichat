@@ -559,6 +559,30 @@ test("skills: in a frontmatter strict YAML refuses, quotes that do not pair leav
   ]);
 });
 
+test("skills: in a frontmatter strict YAML refuses, CRLF line ends read as LF; a block line's trailing spaces cut; a first value it can't read lets a later readable one of the same key win", () => {
+  const root = path.join(TMP, "fins");
+  const put = (dir: string, head: string, eol = "\n") => {
+    fs.mkdirSync(path.join(root, dir), { recursive: true });
+    // the last line makes strict YAML refuse it all
+    const text = "---\nname: " + dir + "\n" + head + "\nx: [quebrado\n---\n# corpo\n";
+    fs.writeFileSync(path.join(root, dir, "SKILL.md"), text.replace(/\n/g, eol));
+  };
+  // a file saved with CRLF: each line's "\r" is no part of its value
+  put("crlf", "description: com CRLF: sim\n  e continua", "\r\n");
+  // spaces at the end of a block's lines don't reach the value
+  put("dobrada-espacos", "description: >\n  linha um   \n  linha dois");
+  put("literal-espacos", "description: |\n  linha um   \n  linha dois");
+  // an unclosed flow list first, then the same key readable: the second
+  put("ilegivel-primeiro", "description: [a, b\ndescription: segunda: sim");
+  const got = Machine.skills(path.join(TMP, "ninguem"), path.join(TMP, "nenhum"), root);
+  expect(got.map((s) => [s.name, s.description])).toEqual([
+    ["crlf", "com CRLF: sim e continua"],
+    ["dobrada-espacos", "linha um linha dois"],
+    ["ilegivel-primeiro", "segunda: sim"],
+    ["literal-espacos", "linha um\nlinha dois"],
+  ]);
+});
+
 test("skills: a description is cut at 1024 characters", () => {
   const root = path.join(TMP, "longa");
   const long = "a".repeat(1023) + "bc" + "d".repeat(100);

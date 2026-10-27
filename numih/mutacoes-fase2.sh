@@ -88,6 +88,9 @@ S12	Machine.ts	skill_value(kv[2].trim(), under)	skill_value(kv[2], under)
 S13	Machine.ts	/^(["']).*\1$/.test(whole)	/^(["']).*["']$/.test(whole)
 S14	Machine.ts	):[ \t]+(\S.*)$/.exec(lines[k])	):[ \t]+(.*)$/.exec(lines[k])
 S15	Machine.ts	(/^[ \t]/.test(lines[k + 1])	(/^ /.test(lines[k + 1])
+S16	Machine.ts	head.split(/\r?	head.split(/
+S17	Machine.ts	l.slice(cut).trimEnd()	l.slice(cut)
+S18	Machine.ts	if (v !== null && !(kv[1] in out)) {	if (!(kv[1] in out)) {
 TABELA
 )"
 
