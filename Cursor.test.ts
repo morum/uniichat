@@ -288,6 +288,7 @@ describe("Cursor.variant", () => {
     expect(Cursor.message(["a", "", "b"], 0)).toBe("a\n\nb");
     expect(Cursor.message(["a"], 1)).toBe("a\n\n(1 imagem não enviada: este serviço de IA aceita somente texto aqui.)");
     expect(Cursor.message(["a"], 3)).toBe("a\n\n(3 imagens não enviadas: este serviço de IA aceita somente texto aqui.)");
+    expect(Cursor.message(["a"], 2)).toBe("a\n\n(2 imagens não enviadas: este serviço de IA aceita somente texto aqui.)");
   });
 });
 
