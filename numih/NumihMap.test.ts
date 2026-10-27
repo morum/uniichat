@@ -140,6 +140,21 @@ describe("numih-map", () => {
     expect(nomeCompletoSeguro("Numih/.git")).toBeNull()
   })
 
+  test("recusa nome de repositório terminado em ponto (a.git., x.), como o numih-sync mod", () => {
+    for (const url of [
+      "https://github.com/Numih/a.git.",
+      "git@github.com:Numih/x.",
+      "ssh://git@github.com/Numih/x..git",
+      "https://github.com/Numih/x./",
+    ]) expect(repoDaUrl(url)).toBeNull()
+    expect(nomeDeRepoSeguro("a.git.")).toBe(false)
+    expect(nomeDeRepoSeguro("x.")).toBe(false)
+    expect(nomeCompletoSeguro("Numih/a.git.")).toBeNull()
+    // ponto no meio continua aceito
+    expect(nomeDeRepoSeguro("numih.com")).toBe(true)
+    expect(repoDaUrl("https://github.com/Numih/a.b.git")?.nome).toBe("a.b")
+  })
+
   test("aviso de divergência do module.dev.yaml escapa be_local e idx do catálogo", () => {
     const t = mkdtempSync(join(tmpdir(), "numih-map-dev-"))
     try {

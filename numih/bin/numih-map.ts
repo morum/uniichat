@@ -95,9 +95,10 @@ export function segmentoSeguro(s: string): boolean {
 
 // Nome de repositório: segmento seguro que não termina em ".git" — o GitHub
 // não aceita esse nome (o sufixo é da URL), e "x.git.git" ou ".git" sozinho
-// só aparecem em URL malformada.
+// só aparecem em URL malformada — nem em ponto ("a.git.", "x."), o mesmo
+// critério do `numih-sync mod`.
 export function nomeDeRepoSeguro(s: string): boolean {
-  return segmentoSeguro(s) && !s.toLowerCase().endsWith(".git")
+  return segmentoSeguro(s) && !s.toLowerCase().endsWith(".git") && !s.endsWith(".")
 }
 
 // "owner/nome" vindo do GitHub (full_name); null se não for seguro.
