@@ -78,9 +78,13 @@ Features
   it, or it's opened again; nothing is erased. A reply of Unii's that
   promises something for later with no task of its own gets a note; one
   that asks you something (a question, a decision, an order to give) with
-  no task of yours about it gets one, "Pergunta sem pendência" (a decision
-  with a text field for your answer, the question in its detail), made by
-  the serve, and a note (`Tasks.questions_in`: a heuristic; quotes, code,
+  no task of yours about it gets a task of Unii's, "Pergunta sem
+  pendência" (not in your Agora: each sentence with the reply it came
+  from, its id and text; Unii reads it, opens a task of yours with the
+  choices if it asked, and drops its own with a reason naming yours or
+  why it was a false alarm; due in 4 h, a new question added keeps that
+  due, late or not), made by the serve,
+  and a note (`Tasks.questions_in`: a heuristic; quotes, code,
   headings, questions Unii answers itself, another's questions reported and
   questions to others don't count). A task of yours is the question's if
   its id is in the question's paragraph, if it was made in that turn with
@@ -112,7 +116,13 @@ Features
   verbs and no subject ("Se publicar, me avise.", meaning the pipeline)
   asks. "precisar" with no subject is always read as your need, so "Me
   avise caso precise reiniciar o serve." asks you even when it is Unii
-  or the pipeline that needs the restart.
+  or the pipeline that needs the restart. A rule of Unii's with "só"
+  ("Só mesclo quando você mandar.", "Só mesclo e reinicio quando você
+  mandar.", "Só mesclo o #24 e o #25 quando você mandar.", "Quando você
+  mandar, só mesclo.") asks nothing; "Falta só o CI e mesclo quando você
+  mandar." asks. In doubt it asks: "Mesclo apenas o #24 e o #25 quando
+  você mandar.", "Só abro o PR e mesclo quando você mandar." and "Só
+  mesclo e depois reinicio quando você mandar." ask.
   Terminal: `/mesa [projeto]`, `/p`, `/p P7`, `/ok P7 [opção] [campo=valor…] [comentário]`,
   `/ok!`, `/rascunho P7 campo=valor`, `/conversa P7 mensagem`,
   `/descartar`, `/reabrir`, `/avisar`.

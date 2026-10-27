@@ -2444,8 +2444,10 @@ export function promises_said(said: string[]): string {
 // What Unii asks of the user (a question, a decision, an order to give)
 // is a task of the user's, or it ends lost in the chat (P87): a turn
 // whose last reply asks the user something with no task of the user's
-// about it gets one, "Pergunta sem pendência", made by the serve, and a
-// note (Server.ts Chat.asked).
+// about it gets a task of Unii's, "Pergunta sem pendência" (task_asked,
+// P112: each sentence with the reply it came from, not in the user's
+// "Agora"; Unii asks the user with a task of theirs, or closes it as a
+// false alarm), made by the serve, and a note (Server.ts Chat.asked).
 //
 // A heuristic, in Portuguese (some English), on the reply outside code
 // (``` blocks, `inline`), quotes (> lines, “…”, "…", «…») and headings
@@ -2473,7 +2475,12 @@ export function promises_said(said: string[]): string {
 //   owner_name: "Depende da ordem do Guilherme.") does; nor "me avise
 //   se/caso" on an event ("Me avise se falhar.", "Se falhar, me avise.":
 //   ASK_NOTIFY_IF, ASK_NOTIFY_BEFORE; "Me avise caso aprove." asks), nor
-//   "você decide" by contrast ("Ele não decide, você decide."), while
+//   "você decide" by contrast ("Ele não decide, você decide."), nor a
+//   rule of Unii's ("PR, merge e reinício só quando você mandar.": "só"
+//   in the simple clause of "quando…", or leading a list it ends, "Só
+//   mesclo e reinicio quando você mandar.", or just after it, "Quando
+//   você mandar, só mesclo.": ask_only_rule, P112; "Falta só o CI e
+//   mesclo quando você mandar." asks), while
 //   "Falta só a sua aprovação." and "Não está ok?" ask (P87 #3);
 // - but one reporting a question ("Enzo perguntou: …?", "Perguntei ao
 //   Enzo se quer que eu mescle": ASK_REPORTED) only if it asks in words
@@ -2594,6 +2601,91 @@ const ASK_NOTIFY_BEFORE = new RegExp("^\\s*(?:e\\s+|mas\\s+)?(?:se|caso)\\s+(?!"
 // who doesn't, in the clause before: "Ele não decide, você decide." (P87
 // #3, B1); "Não, você decide." still asks
 const ASK_WHO_VERB = /\b(decide|escolhe|manda|define)\b/;
+// "só" (no accents, lower) in the simple clause of a request on the
+// user's will ("quando você mandar"): a rule Unii keeps ("PR, merge e
+// reinício só quando você mandar.", "Só mesclo quando você mandar.",
+// "Mesclo só o #24 quando você mandar.", P112), not a request; in
+// another clause it limits something else ("Falta só o CI e mesclo
+// quando você mandar." asks: ask_only_rule)
+const ASK_ONLY_WHEN = /\b(?:so|somente|apenas|unicamente|exclusivamente)\b/;
+// what ends a simple clause, for ASK_ONLY_WHEN (no accents, lower): a
+// stop (, ; :) or a conjunction ("e", "mas", "que"…); not parentheses,
+// nor "que" of a time ("depois que", "antes que", "até que", "desde
+// que", "logo que", "assim que", "sempre que"): "Só mesclo depois que o
+// CI passar quando você mandar." is one clause (P112, verif3 B1)
+const ASK_ONLY_STOP = /[,;:]|\b(?:e|mas|ou|(?<!\b(?:depois|antes|ate|desde|logo|assim|sempre) )que|porem|pois|porque|entao|senao)\b/g;
+// a noun phrase that goes on a list after "e" or a comma ("o #25", "a
+// tag", "#25"), for ask_only_rule (no accents, lower, trimmed)
+const ASK_ONLY_NOUN = /^(?:(?:o|a|os|as|um|uma|uns|umas)\b|[#\d])/;
+
+// whether "só" (ASK_ONLY_WHEN) makes the request just after `before`
+// (the sentence up to it, folded; the request starts with "quando") a
+// rule of Unii's (P112). Parentheses read as not there ("Mesclo (só o
+// #24) quando…"), and one comma just before the request either ("Só
+// mesclo, quando…" is "Só mesclo quando…"). The sentence is cut in simple
+// clauses at each stop or conjunction (ASK_ONLY_STOP). A rule if:
+// - "só" is in the request's own clause (verif2 B1): "Mesclo só o #24
+//   quando…", "PR, merge e reinício só quando…";
+// - or that clause goes on a list that a clause led by "só" starts
+//   (verif3 B1), through "e" or commas: of nouns ("Só mesclo o #24 e o
+//   #25 quando…", "Só abro o PR e a tag quando…"), of bare verbs ("Só
+//   mesclo e reinicio quando…", "Só mesclo, aplico e reinicio quando…"),
+//   or of conditions, the request's clause empty ("Reinicio só quando não
+//   houver agente e quando…", "Só mesclo depois do CI e quando…").
+// Else a request: "Falta só o CI e mesclo quando…" ("falta só o CI" isn't
+// led by "só"), "Só mesclo hoje e faço o deploy quando…" (neither a
+// bare verb nor a noun after "e"). In doubt it asks: a needless task
+// Unii drops costs less than a question lost ("Mesclo apenas o #24 e o
+// #25 quando…" and "Só abro o PR e mesclo quando…" ask, known limits)
+function ask_only_rule(before: string): boolean {
+  const s = before.replace(/[()]/g, " ").replace(/,\s*$/, "");
+  const clauses: string[] = [];
+  const stops: string[] = [];
+  let from = 0;
+  for (const m of s.matchAll(ASK_ONLY_STOP)) {
+    clauses.push(s.slice(from, m.index).trim());
+    stops.push(m[0]);
+    from = m.index + m[0].length;
+  }
+  clauses.push(s.slice(from).trim());
+  let i = clauses.length - 1;
+  if (ASK_ONLY_WHEN.test(clauses[i]!)) {
+    return true;
+  }
+  // a clause's words, "eu" not counted; whether "só" leads them
+  const words = (x: string) => (x.match(/[a-z0-9#]+/g) ?? []).filter((w) => w !== "eu");
+  const led = (x: string) => ASK_ONLY_WHEN.test(words(x)[0] ?? "");
+  if (i >= 1 && clauses[i] === "" && stops[i - 1] === "e") {
+    const prev = clauses[i - 1]!;
+    return led(prev) || new RegExp(ASK_ONLY_WHEN.source + " quando\\b").test(prev);
+  }
+  while (i >= 1 && (stops[i - 1] === "e" || stops[i - 1] === ",")) {
+    const x = clauses[i]!;
+    const prev = clauses[i - 1]!;
+    if (ASK_ONLY_NOUN.test(x)) {
+      if (led(prev)) {
+        return true;
+      }
+      if (!ASK_ONLY_NOUN.test(prev)) {
+        return false;
+      }
+    } else if (words(x).length === 1) {
+      if (led(prev) && words(prev).length === 2) {
+        return true;
+      }
+      if (words(prev).length !== 1) {
+        return false;
+      }
+    } else {
+      return false;
+    }
+    i--;
+  }
+  return false;
+}
+// "só" just after a request put first ("Quando você mandar, só mesclo.",
+// P112, verif3 B4): the same rule
+const ASK_ONLY_AFTER = new RegExp("^\\s*,?\\s*(?:eu\\s+)?" + ASK_ONLY_WHEN.source);
 
 // whether a sentence (folded) asks in words (ASK_WORDS), one request in
 // it not negated just before (ASK_NEGATION), nor an instruction on an
@@ -2609,6 +2701,12 @@ function ask_in_words(s: string): boolean {
     const clause = parts.pop() ?? "";
     const before = (clause.match(/[a-z0-9]+/g) ?? []).slice(-2).join(" ");
     if (ASK_NEGATION.test(before) || ASK_NOTIFY_IF.test(s.slice(at))) {
+      continue;
+    }
+    // a rule of Unii's, not a request: "PR, merge e reinício só quando
+    // você mandar.", "Só mesclo quando você mandar." (P112); "Mesclo
+    // quando você mandar." still asks
+    if (/^quando\b/.test(s.slice(at)) && (ask_only_rule(s.slice(0, at)) || (/(?:^|[,;:])\s*$/.test(s.slice(0, at)) && ASK_ONLY_AFTER.test(s.slice(m.index + m[0].length))))) {
       continue;
     }
     if (/^me (?:avise|avisa|fale|fala)\b/.test(s.slice(at)) && clause.trim() === "" && ASK_NOTIFY_BEFORE.test(parts[parts.length - 1] ?? "")) {
@@ -2725,31 +2823,90 @@ export function question_tasked(s: Store, said: string, since: number): boolean 
 
 export const ASKED_TITLE = "Pergunta sem pendência";
 
-// the task a question without one gets (the user's, a decision from the
-// chat, a text field for the answer): one open already gets these
-// questions added (its title is one); else why not (a full list)
-export function task_asked(s: Store, said: string[], now: number): Task | string {
-  const lines = said.map((x) => "“" + x + "”").join("\n");
-  const detail = "O Unii terminou o turno perguntando ou pedindo algo a você sem abrir pendência (trava da P87):\n" + lines + "\nResponda no campo abaixo; a resposta chega ao Unii.";
-  const had = s.tasks.find((t) => t.state === "open" && t.assignee === "user" && t.title === ASKED_TITLE);
+// where a turn's questions came from: the reply of Unii's that ended it
+// (Server.ts Chat.reply_msg): its id in the chat (null: not known), its
+// text, when it was logged (ISO; null: not known)
+export type AskFrom = { id: number | null; text: string; date: string | null };
+
+// the task's head (its detail starts so), its next step, what makes it
+// done, how long Unii has for it (P112: the task is Unii's, not the
+// user's: Unii reads where the questions came from and asks the user
+// with a task of theirs, or closes it as a false alarm)
+// How it's closed: never done (done needs evidence of a solution, and
+// a reason in words only drops a task, Evidence.ts), but dropped with a
+// reason (task_edit, state dropped, evidence of type reason, at least
+// Evidence.REASON characters) naming the user's new task, or why the
+// sentence asked nothing (B3)
+export const ASKED_HEAD = "O Unii terminou um turno perguntando ou pedindo algo ao usuário sem abrir pendência (trava da P87). Esta tarefa é do Unii, não do usuário. Para cada frase abaixo, leia a mensagem de origem e decida se era pergunta real ou alarme falso. Se era pergunta real, abra a pendência do usuário com task_add (assignee user, com as opções). Depois encerre esta tarefa com task_edit, state dropped e evidence do tipo reason (no mínimo " + Ev.REASON + " caracteres): se era pergunta real, cite no reason o número da nova pendência; se era alarme falso, diga no reason por que a frase não pedia nada. Esta tarefa não fecha como done, porque done exige evidência de uma solução e o reason só serve para dropped.";
+export const ASKED_STEP = "Ler a mensagem de origem; se era pergunta real, abrir a pendência do usuário com task_add e opções; depois encerrar esta tarefa com task_edit (state dropped, evidence reason) citando a nova pendência ou o motivo do alarme falso.";
+export const ASKED_DONE = "esta tarefa encerrada como dropped, com evidence do tipo reason que cita a pendência aberta ao usuário (task_add, assignee user) ou diz por que era alarme falso";
+export const ASKED_DUE = 4 * 3600e3;
+// the most of the origin's text a block quotes
+const ASKED_QUOTE = 160;
+
+// a block of the task's detail: the origin, then its sentences, each
+// with what to decide (so no sentence is ever read without its origin)
+function asked_block(said: string[], from: AskFrom | null): string {
+  const when = from === null || from.date === null ? NaN : Date.parse(from.date);
+  const d = new Date(when);
+  const two = (n: number) => String(n).padStart(2, "0");
+  const at = Number.isNaN(when) ? "" : ", em " + two(d.getDate()) + "/" + two(d.getMonth() + 1) + " às " + two(d.getHours()) + ":" + two(d.getMinutes());
+  const text = from === null ? "" : text_line(from.text, 100000);
+  const quote = text === "" ? "" : ", que começa assim: “" + (text.length > ASKED_QUOTE ? text.slice(0, ASKED_QUOTE).trimEnd() + "…" : text) + "”";
+  const head = from === null || from.id === null ? "Mensagem de origem: a última resposta do Unii no turno (número não disponível)" + at + quote + "." : "Mensagem de origem: nº " + from.id + ", resposta do Unii" + at + quote + ".";
+  return [head, "Frases a decidir (pergunta real ou alarme falso):", ...said.map((x) => "• “" + x + "”")].join("\n");
+}
+
+// the task's detail: its head, then the blocks it had (a task of the
+// user's made before P112: one block, said so) and the new one; the
+// oldest blocks go first, whole, as the detail outgrows DETAIL
+function asked_detail(prev: string, block: string): string {
+  const old = prev.startsWith(ASKED_HEAD) ? prev.slice(ASKED_HEAD.length) : prev.trim() === "" ? "" : "Registro anterior, feito antes desta tarefa ser do Unii:\n" + prev.trim();
+  const blocks = old.split(/\n\s*\n/).map((x) => x.trim()).filter((x) => x !== "");
+  blocks.push(block);
+  const join = () => ASKED_HEAD + "\n\n" + blocks.join("\n\n");
+  while (blocks.length > 1 && join().length > DETAIL) {
+    blocks.shift();
+  }
+  return join().slice(0, DETAIL);
+}
+
+// the task a question without one gets: Unii's (P112), no fields, its
+// next step due in ASKED_DUE, each sentence with its origin (`from`);
+// one open already (Unii's, or the user's made before P112, made
+// Unii's) gets these added, Unii's keeping its due (late or not);
+// else why not (a full list)
+export function task_asked(s: Store, said: string[], now: number, from: AskFrom | null = null): Task | string {
+  const block = asked_block(said, from);
+  const due = new Date(now + ASKED_DUE).toISOString();
+  const had = s.tasks.find((t) => t.state === "open" && t.title === ASKED_TITLE);
   if (had !== undefined) {
     const at = new Date(now).toISOString();
-    const next: Task = { ...had, detail: detail_join(had.detail, lines, DETAIL), changed: at, moved: at, ready: at };
+    // Unii's already, with a due: its due and when it last moved stay,
+    // past or not (a new question doesn't restart its 4 h nor hide that
+    // it's late or stalled: it's the server's change, not Unii's move);
+    // the user's (made before P112), or none: due from now
+    const keep = had.assignee === "unii" && had.next_due !== null && !Number.isNaN(Date.parse(had.next_due));
+    const next: Task = {
+      ...had, assignee: "unii", kind: "action", fields: [], draft: {}, answers: null,
+      detail: asked_detail(had.detail, block), done_when: ASKED_DONE, next_step: ASKED_STEP, next_due: keep ? had.next_due : due,
+      changed: at, moved: keep ? had.moved : at, ready: keep ? had.ready : at,
+    };
     s.tasks[s.tasks.indexOf(had)] = next;
     tasks_save(s);
     return next;
   }
   return task_new(s, {
-    title: ASKED_TITLE, detail, assignee: "user", origin: "chat", kind: "decision",
-    fields: [{ id: "resposta", label: "Sua resposta", kind: "text", required: true }],
-    done_when: "o usuário responder; o Unii executa o que foi decidido",
+    title: ASKED_TITLE, detail: asked_detail("", block), assignee: "unii", origin: "chat", kind: "action",
+    done_when: ASKED_DONE, next_step: ASKED_STEP, next_due: due,
   }, "trava", now);
 }
 
-// the note the turn gets (the user's language)
+// the note the turn gets (the user's language): the task is Unii's, to
+// resolve
 export function questions_said(said: string[], task: Task | string): string {
   const q = said.map((x) => "“" + x + "”").join(", ");
   return typeof task === "string"
-    ? "Pergunta sem pendência: o Unii perguntou " + q + " sem abrir pendência, e não foi possível abri-la (" + task + "). Unii: abra-a com task_add (assignee user, com as opções)."
-    : "Pergunta sem pendência: o Unii perguntou " + q + " sem abrir nem atualizar, neste turno, uma pendência sua. Registrei na " + task.id + ", para não se perder. Unii: da próxima vez, abra a pendência (task_add, assignee user, com as opções) no mesmo turno da pergunta.";
+    ? "Pergunta sem pendência: o Unii perguntou " + q + " sem abrir nem atualizar, neste turno, uma pendência do usuário, e não foi possível registrar a tarefa do Unii (" + task + "). Unii: releia a sua última resposta; se era pergunta real, abra a pendência do usuário com task_add (assignee user, com as opções); se era alarme falso, não faça nada."
+    : "Pergunta sem pendência: o Unii perguntou " + q + " sem abrir nem atualizar, neste turno, uma pendência do usuário. Registrei na " + task.id + ", tarefa do Unii, não do usuário. Unii: resolva a " + task.id + ": leia a mensagem de origem; se era pergunta real, abra a pendência do usuário com task_add (assignee user, com as opções) e encerre a " + task.id + " com task_edit (state dropped, evidence do tipo reason) citando a nova pendência; se era alarme falso, encerre a " + task.id + " do mesmo modo, com o motivo no reason.";
 }
