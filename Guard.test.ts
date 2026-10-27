@@ -235,6 +235,98 @@ const NO = [
   "kill $PPID",
   "kill -9 $PPID",
   "kill \"${PPID}\"",
+  // GrayCrab's (P109): what the mutations left alive in eaff0b8 (a
+  // refs path with a query, terraform import)
+  "gh api 'repos/o/r/git/refs?x=1' -f ref=refs/heads/main -f sha=abc",
+  "terraform import aws_s3_bucket.b nome",
+  "tofu -chdir=hom import x.y id",
+  // the other signals that freeze a process
+  "kill -TSTP 1234",
+  "kill -20 1234",
+  "kill -TTIN 1234",
+  "kill -TTOU 1234",
+  "kill -21 1234",
+  "kill -22 1234",
+  "kill -s TSTP 1234",
+  "kill -SIGTSTP 1234",
+  "kill -sTSTP 1234",
+  "kill -sigttin 1234",
+  "kill -n 20 1234",
+  "kill --signal=TTOU 1234",
+  // killall by path, fuser -k, a kill fed by lsof or ps
+  "killall /usr/bin/bun",
+  "killall -9 /home/morum/.local/share/mise/installs/bun/1.4.2/bin/bun",
+  "killall -I /usr/bin/BUN",
+  "fuser -k 8788/tcp",
+  "fuser -k -n tcp 8788",
+  "fuser -km /home",
+  "fuser -k /usr/bin/bun",
+  "fuser --kill 8788/tcp",
+  "fuser -k",
+  "kill $(lsof -ti :8788)",
+  "kill -9 $(lsof -t -i:8788)",
+  "lsof -ti :8788 | xargs kill",
+  "lsof -ti tcp:8788 | xargs -r kill -9",
+  "lsof -t -iTCP | xargs kill",
+  "kill $(lsof -t)",
+  "kill $(lsof -t /usr/bin/bun)",
+  "ps aux | grep bun | awk '{print $2}' | xargs kill",
+  "ps -ef | grep Cli.ts | xargs kill",
+  "kill $(ps -C bun -o pid=)",
+  "kill $(ps -o pid= -C bun)",
+  "ps -C bun -o pid= | xargs kill",
+  "kill $(ps -eo pid=)",
+  "ps aux | awk '/bun/ {print $2}' | xargs kill",
+  // gh api writes where a write is a user's order, curl and wget to the API
+  "gh api -X POST repos/o/r/merges -f base=main -f head=feat/x",
+  "gh api repos/o/r/merges -f base=main -f head=feat/x",
+  "gh api repos/o/r/merges --input body.json",
+  "gh api -X POST repos/o/r/actions/workflows/deploy.yml/dispatches -f ref=main",
+  "gh api -X POST repos/o/r/dispatches -f event_type=deploy",
+  "gh api -X POST repos/o/r/releases -f tag_name=v1",
+  "gh api repos/o/r/releases -f tag_name=v1",
+  "gh api -X PATCH repos/o/r/releases/123 -f draft=false",
+  "gh api -X DELETE 'repos/o/r/releases/123?x=1'",
+  "gh api -X PUT repos/o/r/pulls/$N/merge",
+  "gh api -X PUT \"repos/o/r/pulls/${N}/merge\"",
+  "gh api repos/o/r/pulls/5/merge -f merge_method=squash",
+  "curl -X POST https://api.github.com/repos/o/r/merges -d '{\"base\":\"main\"}'",
+  "curl -X POST -H 'Authorization: token x' https://api.github.com/repos/o/r/actions/workflows/d.yml/dispatches -d '{}'",
+  "curl -sSXPOST https://api.github.com/repos/o/r/releases",
+  "curl -sS -X PATCH https://api.github.com/repos/o/r/git/refs/heads/main -d '{\"sha\":\"x\"}'",
+  "curl --request=DELETE https://api.github.com/repos/o/r/git/refs/heads/main",
+  "curl --request PUT https://api.github.com/repos/o/r/pulls/$N/merge",
+  "curl -d '{\"a\":1}' https://api.github.com/repos/o/r/merges",
+  "curl -sd @x.json https://api.github.com/repos/o/r/merges",
+  "curl --data @x.json https://api.github.com/repos/o/r/releases",
+  "curl --json '{}' https://api.github.com/repos/o/r/releases",
+  "curl -T a.zip https://uploads.github.com/repos/o/r/releases/1/assets",
+  "curl -X POST https://api.github.com/graphql -d '{\"query\":\"mutation { mergePullRequest(input: {}) { clientMutationId } }\"}'",
+  "wget --post-data '{}' https://api.github.com/repos/o/r/merges",
+  "wget --method=PUT https://api.github.com/repos/o/r/pulls/5/merge",
+  // a tag by its word, a destination heads/main, a tag made and pushed in
+  // one command, git send-pack
+  "git push origin tag v1",
+  "git push origin tag v1.0.0 feat/x",
+  "git push origin HEAD:heads/main",
+  "git push origin feat/x:heads/master",
+  "git push origin HEAD:tags/v1",
+  "git tag v1 && git push origin v1",
+  "git tag -a v1 -m 'versão 1' && git push origin v1",
+  "git tag -m x v2; git push origin +v2:v2",
+  "git send-pack origin main",
+  "git send-pack --all origin",
+  "/usr/lib/git-core/git-send-pack origin x",
+  "git -C repo send-pack origin feat/x",
+  // a pattern that would take long to match: refused at once
+  "pkill -f '^(.+)+x$'",
+  "pkill -f '(.*.*.*.*)x'",
+  // what the mutations left alive in the first take of these bans
+  "kill $(lsof -t -p 1234 /usr/bin/bun)",
+  "gh api 'repos/o/r/releases?x=1' -f tag_name=v1",
+  "wget --method=DELETE https://api.github.com/repos/o/r/git/refs/heads/main",
+  "git tag v1 HEAD~1 && git push origin v1",
+  "git push origin tag",
 ];
 
 const YES = [
@@ -322,6 +414,61 @@ const YES = [
   "kill -l",
   "echo 'kill -STOP 1'",
   "grep -n 'kill -9 -1' README.md",
+  // GrayCrab's (P109): a read of the API by HEAD, a query on contents read;
+  // everyday work that only looks like a ban
+  "gh api -X HEAD repos/o/r/git/refs/heads/main",
+  "gh api --method HEAD repos/o/r/releases",
+  "gh api -X PATCH repos/o/r/git/refs/heads/feat/x?y=1 -f sha=abc",
+  "git push --help",
+  "git push -h",
+  "git help push",
+  "terraform plan -out apply",
+  "terraform plan -var env=hom -out apply",
+  "tofu plan -out destroy.plan",
+  "bun test",
+  "bun test Guard.test.ts",
+  "gh api repos/o/r/pulls/3/merge",
+  "gh api -X GET repos/o/r/merges",
+  "gh api repos/o/r/releases",
+  "gh api repos/o/r/releases/latest --jq .tag_name",
+  "gh api repos/o/r/actions/workflows",
+  "gh api -X POST repos/o/r/issues/5/comments -f body=ok",
+  "curl -s https://api.github.com/repos/o/r/releases",
+  "curl -sI https://api.github.com/repos/o/r",
+  "curl -s -X GET https://api.github.com/repos/o/r/pulls/3",
+  "curl -G -d per_page=5 https://api.github.com/repos/o/r/releases",
+  "curl -X POST http://127.0.0.1:8790/api/x -d '{}'",
+  "curl -s https://api.github.com/graphql -d '{\"query\":\"{ viewer { login } }\"}'",
+  "curl -X POST https://api.github.com/graphql -d @q.json",
+  "wget -qO- https://api.github.com/repos/o/r",
+  "fuser 8788/tcp",
+  "fuser -v 8788/tcp",
+  "fuser -k 8790/tcp",
+  "fuser -k -n tcp 8791",
+  "lsof -ti :8788",
+  "kill $(lsof -ti :8790)",
+  "lsof -t -i tcp:8793 | xargs kill",
+  "ps -C bun -o pid=",
+  "ps aux | grep bun",
+  "kill $(ps -C node -o pid=)",
+  "ps -p 1234 && kill 1234",
+  "ps aux | grep 'bun test' | awk '{print $2}' | xargs kill",
+  "kill -CONT 1234",
+  "kill -TERM 1234",
+  "killall /usr/bin/node",
+  "git push origin tag-fix:feat/tag-fix",
+  "git push origin feat/tags",
+  "git tag -l && git push origin feat/x",
+  "git tag v1 && git push origin feat/x",
+  "git tag -d v0 && git push origin HEAD:feat/x",
+  "pkill -f 'morum.*bun test'",
+  "pkill -f 'Cli.ts serve --port 87(9[0-9])'",
+  "curl --request=GET https://api.github.com/repos/o/r",
+  "curl -sXGET https://api.github.com/repos/o/r/pulls/3",
+  "curl --get -d per_page=5 https://api.github.com/repos/o/r/releases",
+  "curl -I https://api.github.com/repos/o/r",
+  "wget --method=GET -qO- https://api.github.com/repos/o/r",
+  "git tag -d v0 && git push origin v0",
 ];
 
 test("a command is read as bash reads it: operators, quotes, backslashes, comments", () => {
@@ -483,9 +630,47 @@ test("gh and terraform are read by their words, past their options", () => {
   expect(Guard.calls(["/usr/bin/terraform", "-chdir=x", "plan", "-out=apply"], new Set(["terraform"]), new Set())).toEqual([{ pos: ["plan"], opts: [["-chdir=x"], ["-out=apply"]] }]);
   expect(Guard.forbidden("gh pr -R o/r merge 5")).toContain("mesclar um pull request");
   expect(Guard.forbidden("gh release create v1")).toContain("criar um release");
-  expect(Guard.forbidden("gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=x")).toContain("alterar main pela API do GitHub");
+  expect(Guard.forbidden("gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=x")).toContain("alterar o GitHub pela API");
+  expect(Guard.forbidden("curl -X POST https://api.github.com/repos/o/r/merges")).toContain("alterar o GitHub pela API");
+  expect(Guard.forbidden("gh api -X PUT repos/o/r/pulls/$N/merge")).toContain("mesclar um pull request");
+  expect(Guard.forbidden("git send-pack origin main")).toContain("git send-pack");
+  expect(Guard.forbidden("git push origin tag v1")).toContain("publicar tags");
+  expect(Guard.forbidden("fuser -k 8788/tcp")).toContain("reiniciar ou parar o serve");
+  expect(Guard.forbidden("kill -TSTP 1")).toContain("-TSTP");
   expect(Guard.forbidden("kill -STOP 1")).toContain("kill -STOP");
   expect(Guard.forbidden("kill -9 -1")).toContain("congelar ou matar processos");
+});
+
+// GrayCrab (P109): pkill -f '^(.+)+x$' took the guard past 10 s, the serve
+// frozen with it; such a pattern is refused before it is matched
+test("a pattern that may take long to match is refused at once, in less than 1 s", () => {
+  for (const p of ["^(.+)+x$", "(.*.*.*.*)x", "(a+)*b", "(x|.?)*y", "(.{1,9})+z", "(a+){2,}b", "a{1,5}b{2,}c{0,3}d", ".*.*.*zz", "(a)\\1", "a?".repeat(9) + "b", "x".repeat(257)]) {
+    const t0 = performance.now();
+    const no = Guard.forbidden("pkill -f '" + p + "'", REAL);
+    expect([p, performance.now() - t0 < 1000]).toEqual([p, true]);
+    expect(no === null ? "passou: " + p : no).toContain("reiniciar ou parar o serve");
+    expect([p, Guard.slow(p)]).toEqual([p, true]);
+  }
+  for (const p of ["morum.*device", "bun.*Cli.*serve", "bun test", "(?:a|b)c+", "(?:ab)+c", "(a+)?b", "[(*+]x", "[*+*+]x", "a.*?b", "a?b?c?d?e?f?g?.*?x", "x{3}y", "a?".repeat(8) + "b", "\\(a\\)+", "\\(a+\\)+", "x".repeat(256)]) {
+    expect([p, Guard.slow(p)]).toEqual([p, false]);
+  }
+  const t0 = performance.now();
+  expect(Guard.forbidden("pkill -f '.*.*zz'", REAL)).toBeNull();
+  expect(performance.now() - t0).toBeLessThan(1000);
+});
+
+// what the serve refuses is said where an agent and the user read it:
+// the prompt (Tools.ts NESTED) and the README (GrayCrab B5, P109)
+test("the prompt and the README name every ban", async () => {
+  const nested = /const NESTED = `([\s\S]*?)`;/.exec(await Bun.file(join(import.meta.dir, "Tools.ts")).text())?.[1] ?? "";
+  const readme = (await Bun.file(join(import.meta.dir, "README.md")).text()).replace(/`/g, "").replace(/\s+/g, " ");
+  for (const t of ["merge", "push to main", "push tags", "release", "restart", "deploy", "git push origin HEAD:feat/x", "git push origin tag v1", "heads/main",
+    "tags/x", "made and pushed in one", "git send-pack", "gh release create", "git/refs", "contents", "merges", "dispatches", "releases", "pulls/N/merge", "curl",
+    "wget", "import", "kill -STOP", "-TSTP", "-TTIN", "-TTOU", "kill -1", "kill $PPID", "killall (by name or path)", "pidof", "fuser -k", "lsof", "ps",
+    "pkill -f pattern that may take long to match"]) {
+    expect(["NESTED", t, nested.replace(/\s+/g, " ").includes(t)]).toEqual(["NESTED", t, true]);
+    expect(["README", t, readme.includes(t)]).toEqual(["README", t, true]);
+  }
 });
 
 test("a command's words and what it runs, past sudo, env, timeout, if", () => {

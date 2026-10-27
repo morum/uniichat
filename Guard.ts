@@ -69,6 +69,26 @@
 // one); kill -STOP, which froze the serve, in any of its spellings (-s
 // STOP, -SIGSTOP, -19, -n 19); kill -1 as the target (kill -9 -1, every
 // process); and kill $PPID (the device that runs the agent's shell).
+//
+// And (GrayCrab, P109): the other signals that freeze a process (-TSTP,
+// -TTIN, -TTOU, 20 to 22); killall by the program's path (killall
+// /usr/bin/bun); fuser -k on a file or the serve's port (fuser -k
+// 8788/tcp; another port goes); a kill fed by lsof or ps that finds the
+// serve (kill $(lsof -ti :8788), kill $(ps -C bun -o pid=), ps aux | grep
+// bun | xargs kill); a write by gh api to merges, a workflow's
+// dispatches, releases or a pull request's merge (pulls/$N/merge too),
+// and curl or wget to the GitHub API with a method that changes it (-X
+// POST, -d...); git push origin tag v1, a destination heads/main, a tag
+// made and pushed in one command (git tag v1 && git push origin v1), and
+// git send-pack. A pkill -f pattern that may take long to match (Guard.slow:
+// (.+)+x took the guard past 10 s) is refused as one it can't read. Out
+// of reach: a tag made in one command and pushed by its name in another
+// (git push origin v1 can't be told from a branch v1); GraphQL mutations
+// other than a merge; httpie and other clients of the API.
+//
+// What only looks like a ban goes: git push --help, terraform plan -out
+// apply (apply is the plan's file), gh api reads (GET, HEAD), curl reads
+// of the API, fuser and lsof that only list.
 
 import { homedir, userInfo } from "node:os";
 import { join } from "node:path";
@@ -112,14 +132,30 @@ const E = "(?![\\w-])";
 const GIT_VALUED = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env", "--list-cmds"]);
 // push's options that take the next word as their value
 const PUSH_VALUED = new Set(["-o", "--push-option", "--repo", "--exec", "--receive-pack"]);
-// a refspec's destination naming main or master
-const MAIN = /^(?:refs\/heads\/)?(?:main|master)$/;
+// a refspec's destination naming main or master (heads/main too: git
+// reads it as refs/heads/main)
+const MAIN = /^(?:(?:refs\/)?heads\/)?(?:main|master)$/;
+// a refspec's destination naming a tag (refs/tags/x, tags/x)
+const TAG = /(?:^|:)\+?(?:refs\/)?tags\//;
+// a pull request's merge in the API's paths (pulls/5/merge, pulls/$N/merge)
+const PR_MERGE = /pulls\/[^/\s]+\/merge(?![\w-])/;
+// the API's paths a write to is a user's order: a merge of branches, a
+// workflow's run, a release (POST, PATCH, DELETE); a pull request's merge
+// is the first ban's (PR_MERGE)
+const API_WRITES = /(?:^|\/)merges(?:\/|$|\?)|\/dispatches(?:\/|$|\?)|(?:^|\/)releases(?:\/|$|\?)/;
+// the GitHub API's hosts
+const GITHUB_API = /(?:^|\/\/|@)(?:api|uploads)\.github\.com(?:[/:?]|$)/;
 // gh's options, its commands' and its api's, that take the next word as
 // their value (gh pr -R o/r merge 5, gh api -X PATCH path -f sha=x)
 const GH_VALUED = new Set(["-R", "--repo", "-X", "--method", "-f", "--raw-field", "-F", "--field", "-H", "--header", "-q", "--jq",
   "-t", "--template", "--input", "--hostname", "-p", "--preview", "--cache", "-S", "--search", "--title", "-b", "--body"]);
-// the infrastructure tools whose apply, destroy or import is a deploy
+// the infrastructure tools whose apply, destroy or import is a deploy,
+// and their options that may take the next word as their value
+// (terraform plan -out apply is a plan)
 const IAC = new Set(["terraform", "tofu", "terragrunt"]);
+const IAC_VALUED = new Set(["-out", "-var", "-var-file", "-target", "-replace", "-state", "-state-out", "-backup", "-lock-timeout", "-parallelism", "-chdir"]);
+// the signals that freeze a process (stop it, as the serve was frozen)
+const FREEZE = /^(?:SIG)?(?:STOP|TSTP|TTIN|TTOU)$|^(?:19|20|21|22)$/i;
 
 // what only runs the command after it, and its options that take a value;
 // and the shell's words that start a command (if pkill bun; then ...)
@@ -144,6 +180,13 @@ const BRACES = 4096;
 // its device's (Guard header)
 const SERVE_NAMES = ["bun"];
 const MODES = ["serve", "device", "serve --port 8788"];
+// the serve's port: the default one, and this serve's if it was given one
+// (unii serve 8790)
+const AT_SERVE = process.argv.indexOf("serve");
+export const SERVE_PORTS = [...new Set(["8788", ...(AT_SERVE < 0 ? [] : process.argv.slice(AT_SERVE + 1).filter((a) => /^\d+$/.test(a)))])];
+// a pattern pkill -f is matched against is read only if it can't take
+// long to match (Guard.slow): this long at most
+const PATTERN_MAX = 256;
 
 // the command lines of the serve and its device run by each bun with each
 // Cli.ts: "<bun> <cli> serve", "<bun> <cli> device"...
@@ -192,8 +235,8 @@ export const BANS: Ban[] = [
     what: "mesclar um pull request (merge)",
     test: (c, p) => new RegExp(W + "gh\\s+pr\\s+merge" + E).test(p)
       || gh(c.words).some((g) => g.pos[0] === "pr" && g.pos[1] === "merge")
-      || new RegExp(W + "gh\\s+api\\b[^\\n]*pulls/\\d+/merge" + E).test(p)
-      || /pulls\/\d+\/merge(?![\w-])/.test(p) && /(?<![A-Za-z])PUT(?![A-Za-z])|-X\s*put\b|--(?:request|method)[\s=]+put\b/i.test(p)
+      || gh(c.words).some((g) => g.pos[0] === "api" && api_method(g) !== "GET" && PR_MERGE.test(g.pos[1] ?? ""))
+      || PR_MERGE.test(p) && /(?<![A-Za-z])PUT(?![A-Za-z])|-X\s*put\b|--(?:request|method)[\s=]+put\b/i.test(p)
       || /\bmergePullRequest\b|\benablePullRequestAutoMerge\b/.test(p),
   },
   {
@@ -206,7 +249,17 @@ export const BANS: Ban[] = [
   },
   {
     what: "publicar tags (um release é ordem do usuário)",
-    test: (c) => pushes(c.words).some((p) => p.tags || p.specs.some((s) => /(?:^|:)\+?refs\/tags\//.test(s.replace(/^\+/, "")))),
+    test: (c) => pushes(c.words).some((p) => p.tags || p.specs.some((s) => TAG.test(s.replace(/^\+/, "")))),
+    // a tag made and pushed by its name in one command (git tag v1 && git
+    // push origin v1); in two commands the serve can't tell v1 is a tag
+    whole: (seen) => {
+      const made = seen.flatMap((s) => tags_made(s.cmd.words));
+      return made.length > 0 && seen.some((s) => pushes(s.cmd.words).some((p) => p.specs.some((x) => made.includes(x.replace(/^\+/, "").split(":")[0] ?? ""))));
+    },
+  },
+  {
+    what: "usar git send-pack (o push de baixo nível, que o serve não lê)",
+    test: (c) => calls(c.words, new Set(["git"]), GIT_VALUED).some((g) => g.pos[0] === "send-pack") || c.words.some((w) => w.slice(w.lastIndexOf("/") + 1) === "git-send-pack"),
   },
   {
     what: "reiniciar ou parar o serve",
@@ -215,12 +268,16 @@ export const BANS: Ban[] = [
       || /\bserver\.pid\b/.test(p) && new RegExp(W + "kill" + E).test(p),
     whole: (seen, lines) => {
       const run = seen.filter((s) => !s.loose).map((s) => command_of(s.cmd.words)).filter((c) => c !== null);
+      const kill = run.some((c) => c.name === "kill");
       return run.some((c) => (c.name === "pkill" || c.name === "killall") && targets(c, lines))
-        || run.some((c) => c.name === "kill") && run.some((c) => (c.name === "pgrep" || c.name === "pidof") && targets(c, lines));
+        || run.some((c) => c.name === "fuser" && fuser_kills(c))
+        || kill && run.some((c) => (c.name === "pgrep" || c.name === "pidof") && targets(c, lines))
+        || kill && run.some((c) => c.name === "lsof" && lsof_finds(c))
+        || kill && run.some((c) => c.name === "ps") && ps_finds(run, lines);
     },
   },
   {
-    what: "congelar ou matar processos sem alvo certo (kill -STOP, kill -1, kill $PPID), o que alcança o serve e o device",
+    what: "congelar ou matar processos sem alvo certo (kill -STOP, -TSTP, -TTIN, -TTOU, kill -1, kill $PPID), o que alcança o serve e o device",
     test: () => false,
     whole: (seen) => seen.filter((s) => !s.loose).map((s) => command_of(s.cmd.words)).some((c) => c !== null && blind(c)),
   },
@@ -229,12 +286,13 @@ export const BANS: Ban[] = [
     test: (c) => gh(c.words).some((g) => g.pos[0] === "release" && g.pos[1] === "create"),
   },
   {
-    what: "alterar main pela API do GitHub (gh api em git/refs ou contents)",
-    test: (c) => gh(c.words).some((g) => g.pos[0] === "api" && api_main(g)),
+    what: "alterar o GitHub pela API (gh api ou curl: main por git/refs ou contents, merges, dispatches de workflow, releases, merge de PR)",
+    test: (c) => gh(c.words).some((g) => g.pos[0] === "api" && (api_main(g) || api_write(g)))
+      || curl_writes(c.words),
   },
   {
     what: "fazer deploy ou aplicar infraestrutura",
-    test: (c, p) => calls(c.words, IAC, new Set()).some((t) => t.pos.some((w) => w === "apply" || w === "destroy" || w === "import"))
+    test: (c, p) => calls(c.words, IAC, IAC_VALUED).some((t) => t.pos.some((w) => w === "apply" || w === "destroy" || w === "import"))
       || new RegExp(W + "gcloud\\b[^\\n]*\\bdeploy" + E).test(p)
       || new RegExp(W + "gcloud\\s+run\\s+(?:services|jobs)\\s+(?:update|replace|execute)" + E).test(p)
       || new RegExp(W + "kubectl\\b[^\\n]*\\b(?:apply|rollout|set\\s+image|delete|scale|patch|replace)" + E).test(p)
@@ -689,6 +747,10 @@ export function pushes(ws: string[]): { specs: string[]; all: boolean; tags: boo
     if (ws[i] !== "push") {
       continue;
     }
+    // git push --help, -h: its manual, no push
+    if (ws.slice(i + 1).some((a) => a === "--help" || a === "-h")) {
+      continue;
+    }
     const opts: string[] = [];
     const pos: string[] = [];
     let rest = false;
@@ -707,10 +769,12 @@ export function pushes(ws: string[]): { specs: string[]; all: boolean; tags: boo
     }
     // --repo names the remote: then every word left is a refspec
     const repo = opts.some((o) => o === "--repo" || o.startsWith("--repo="));
+    const specs = repo ? pos : pos.slice(1);
     out.push({
-      specs: repo ? pos : pos.slice(1),
+      specs,
       all: opts.some((o) => /^--(?:all|mirror|branches)(?:=|$)/.test(o)),
-      tags: opts.some((o) => o === "--tags" || o === "--follow-tags"),
+      // tag v1 is refs/tags/v1
+      tags: opts.some((o) => o === "--tags" || o === "--follow-tags") || specs.includes("tag"),
     });
   }
   return out;
@@ -814,7 +878,7 @@ function env_split(ws: string[]): string[] {
 // one that can't be read (a variable, a command's output, not a regular
 // expression) is taken to
 function hits(pattern: string, full: boolean, exact: boolean, nocase: boolean, lines: string[]): boolean {
-  if (/\$[({\w]|`/.test(pattern)) {
+  if (/\$[({\w]|`/.test(pattern) || slow(pattern)) {
     return true;
   }
   let re: RegExp;
@@ -824,6 +888,157 @@ function hits(pattern: string, full: boolean, exact: boolean, nocase: boolean, l
     return true;
   }
   return (full ? lines : SERVE_NAMES).some((t) => re.test(t));
+}
+
+// whether a pattern may take long to match the serve's lines (a JS regex
+// backtracks: (.+)+x or (.*.*.*.*)x took the guard past 10 s, the serve
+// frozen with it): too long, a quantifier inside a quantified group, a
+// back reference, more than 2 quantifiers that repeat (*, +, {n,m}; a ?
+// after a group only makes it optional), or
+// more than 8 in all (?, {n} too). Such a pattern is refused as one that
+// can't be read (Guard.hits); a measure, not a proof: the test holds it
+// under 1 s
+export function slow(pattern: string): boolean {
+  if (pattern.length > PATTERN_MAX || /\\[1-9]|\\k</.test(pattern)) {
+    return true;
+  }
+  // each group open: whether a quantifier stands in it
+  const open: boolean[] = [];
+  let repeats = 0;
+  let all = 0;
+  let inside = false;
+  for (let i = 0; i < pattern.length; i++) {
+    const c = pattern[i] ?? "";
+    if (c === "\\") {
+      i += 1;
+      continue;
+    }
+    if (c === "[") {
+      // a class: to its ] (a ] first in it is a character)
+      let j = i + 1;
+      if (pattern[j] === "^") j += 1;
+      if (pattern[j] === "]") j += 1;
+      while (j < pattern.length && pattern[j] !== "]") j += pattern[j] === "\\" ? 2 : 1;
+      i = j;
+      continue;
+    }
+    if (c === "(") {
+      open.push(false);
+      continue;
+    }
+    const quant = c === "*" || c === "+" || c === "?" && pattern[i - 1] !== "(" || c === "{" && /^\{\d*,?\d*\}/.test(pattern.slice(i));
+    if (c === ")") {
+      inside = open.pop() ?? false;
+      // a quantifier after a group with one in it: nested
+      const q = pattern[i + 1] ?? "";
+      if (inside && (q === "*" || q === "+" || q === "{")) {
+        return true;
+      }
+      if (inside && open.length > 0) {
+        open[open.length - 1] = true;
+      }
+      continue;
+    }
+    if (quant) {
+      // a lazy ? after a quantifier is no other
+      if (c === "?" && /[*+?}]/.test(pattern[i - 1] ?? "")) {
+        continue;
+      }
+      if (open.length > 0) {
+        open[open.length - 1] = true;
+      }
+      all += 1;
+      const range = c === "{" ? /^\{(\d*)(,?)(\d*)\}/.exec(pattern.slice(i)) : null;
+      if (c === "*" || c === "+" || range !== null && range[2] === "," && (range[3] === "" || Number(range[3]) > Number(range[1] || "0"))) {
+        repeats += 1;
+      }
+    }
+  }
+  return repeats > 2 || all > 8;
+}
+
+// whether fuser kills (-k) what may be the serve: any file (its program,
+// its data), or the serve's port; a port of another serve (fuser -k
+// 8790/tcp) goes
+function fuser_kills(cmd: Cmd): boolean {
+  const a = cmd.args;
+  if (!a.some((o) => o === "--kill" || /^-[a-zA-Z]*k[a-zA-Z]*$/.test(o))) {
+    return false;
+  }
+  const ns = a.findIndex((o) => o === "-n" || o === "--namespace");
+  const named = ns >= 0 ? a[ns + 1] ?? "" : "";
+  const pos = a.filter((o, k) => !o.startsWith("-") && !(ns >= 0 && k === ns + 1));
+  if (pos.length === 0 || a.some((o) => o === "-m" || o === "--mount" || /^-[a-zA-Z]*[mM][a-zA-Z]*$/.test(o))) {
+    return true;
+  }
+  return pos.some((p) => {
+    const port = /^(\d+)(?:,[^/]*)?\/(?:tcp|udp)$/.exec(p)?.[1] ?? (/^(?:tcp|udp)$/.test(named) && /^\d+$/.test(p) ? p : undefined);
+    return port === undefined || SERVE_PORTS.includes(port);
+  });
+}
+
+// whether lsof, in a command with a kill (kill $(lsof -ti :8788)), finds
+// what may be the serve: its port, a network spec with no port (every
+// process with a socket), or a file (one the serve may hold)
+function lsof_finds(cmd: Cmd): boolean {
+  const a = cmd.args;
+  // a selection by another port, or by pids (-p 123), goes; none: every
+  // process with a file open, the serve among them
+  let picked = false;
+  for (let k = 0; k < a.length; k++) {
+    const o = a[k] ?? "";
+    const i = /^-[a-zA-Z]*i(.*)$/.exec(o);
+    if (i !== null) {
+      const spec = i[1] !== "" ? i[1] ?? "" : (a[k + 1] ?? "").startsWith("-") ? "" : a[k + 1] ?? "";
+      if (i[1] === "" && spec !== "") {
+        k += 1;
+      }
+      const port = /:(\w+)(?:-\w+)?$/.exec(spec)?.[1];
+      if (port === undefined || !/^\d+$/.test(port) || SERVE_PORTS.includes(port)) {
+        return true;
+      }
+      picked = true;
+      continue;
+    }
+    if (o === "-p" && /^[\d,]+$/.test(a[k + 1] ?? "")) {
+      picked = true;
+      k += 1;
+      continue;
+    }
+    if (!o.startsWith("-")) {
+      return true;
+    }
+  }
+  return !picked;
+}
+
+// whether ps, in a command with a kill (kill $(ps -C bun -o pid=), ps aux
+// | grep bun | xargs kill), finds what may be the serve: ps -C naming it,
+// or every process (ps aux, ps -e) not filtered by a grep whose pattern
+// misses the serve's lines; ps -p with its pids goes
+function ps_finds(run: Cmd[], lines: string[]): boolean {
+  const greps = run.filter((c) => /^(?:e|f|r)?grep$|^rg$/.test(c.name));
+  for (const c of run.filter((x) => x.name === "ps")) {
+    const a = c.args;
+    const by = (f: string[]) => a.findIndex((o) => f.includes(o));
+    const cmd = by(["-C"]);
+    if (cmd >= 0) {
+      if ((a[cmd + 1] ?? "").split(",").some((n) => SERVE_NAMES.includes(n) || /\$|`/.test(n))) {
+        return true;
+      }
+      continue;
+    }
+    const pid = by(["-p", "--pid", "p"]);
+    if (pid >= 0 && /^[\d,\s]+$/.test(a[pid + 1] ?? "")) {
+      continue;
+    }
+    // every process: a grep must say which, and miss the serve
+    const pats = greps.map((g) => g.args.find((x) => !x.startsWith("-")));
+    if (pats.length === 0 || pats.some((p) => p === undefined || hits(p, true, false, true, lines))) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // whether pkill, pgrep or pidof, as called, reaches the serve (pkill bun,
@@ -864,7 +1079,11 @@ function targets(cmd: Cmd, lines: string[]): boolean {
     if (pos.length === 0) {
       return opts.some((o) => o === "-u" || o === "--user");
     }
-    return pos.some((p) => regex ? hits(p, false, false, nocase, lines) : /\$|`/.test(p) || SERVE_NAMES.some((n) => nocase ? n.toLowerCase() === p.toLowerCase() : n === p));
+    // killall /usr/bin/bun names the program by its file: its name is bun
+    return pos.some((p) => regex ? hits(p, false, false, nocase, lines) : /\$|`/.test(p) || SERVE_NAMES.some((n) => {
+      const b = p.slice(p.lastIndexOf("/") + 1);
+      return nocase ? n.toLowerCase() === b.toLowerCase() : n === b;
+    }));
   }
   // pkill, pgrep: -v (--inverse) picks every process the pattern misses;
   // no pattern, only -u and the like: every process of theirs
@@ -914,6 +1133,105 @@ function gh(ws: string[]): { pos: string[]; opts: string[][] }[] {
   return calls(ws, new Set(["gh"]), GH_VALUED);
 }
 
+// a gh api call's method: the last -X or --method, else POST if it sends
+// fields or a body (--input), else GET (as gh does); HEAD is a read
+function api_method(g: { pos: string[]; opts: string[][] }): string {
+  const set = g.opts.map((o) => o[0] === "-X" || o[0] === "--method" ? o[1] ?? "" : /^-X.|^--method=/.test(o[0] ?? "") ? (o[0] ?? "").replace(/^-X|^--method=/, "") : null)
+    .filter((m) => m !== null);
+  const body = g.opts.some((o) => /^(?:-f|-F|--field|--raw-field|--input)$|^--(?:raw-)?field=|^--input=/.test(o[0] ?? ""));
+  const m = (set.at(-1) ?? (body ? "POST" : "GET")).toUpperCase();
+  return m === "HEAD" ? "GET" : m;
+}
+
+// whether a gh api call writes where a write is a user's order (merges,
+// a workflow's dispatches, releases)
+function api_write(g: { pos: string[]; opts: string[][] }): boolean {
+  return api_method(g) !== "GET" && API_WRITES.test(g.pos[1] ?? "");
+}
+
+// whether curl (or wget) calls the GitHub API with a method that changes
+// it: -X (or --request) other than GET and HEAD, or a body (-d, --data*,
+// --json, -F, -T) without -G; the serve can't read what a body changes
+function curl_writes(ws: string[]): boolean {
+  const cmd = command_of(ws);
+  if (cmd === null || !cmd.args.some((w) => GITHUB_API.test(w))) {
+    return false;
+  }
+  const a = cmd.args;
+  if (cmd.name === "wget") {
+    return a.some((o) => /^--(?:post-data|post-file|body-data|body-file)(?:=|$)/.test(o))
+      || a.some((o, k) => /^--method(?:=|$)/.test(o) && !/^(?:GET|HEAD)$/i.test(o.includes("=") ? o.slice(9) : a[k + 1] ?? ""));
+  }
+  if (cmd.name !== "curl") {
+    return false;
+  }
+  let method = "";
+  let body = false;
+  let get = false;
+  for (let k = 0; k < a.length; k++) {
+    const o = a[k] ?? "";
+    if (o === "--request" || o.startsWith("--request=")) {
+      method = o.includes("=") ? o.slice(10) : a[++k] ?? "";
+    } else if (/^--(?:data(?:-raw|-binary|-urlencode|-ascii)?|json|form(?:-string)?|upload-file)(?:=|$)/.test(o)) {
+      body = true;
+    } else if (o === "--get") {
+      get = true;
+    } else if (/^-[a-zA-Z]/.test(o) && !o.startsWith("--")) {
+      // a cluster of short options (-sSX POST, -XPOST, -sd '{}')
+      for (let j = 1; j < o.length; j++) {
+        const f = o[j] ?? "";
+        if (f === "X") {
+          method = j + 1 < o.length ? o.slice(j + 1) : a[++k] ?? "";
+          break;
+        }
+        if (f === "d" || f === "F" || f === "T") {
+          body = true;
+          break;
+        }
+        if (f === "G") get = true;
+      }
+    }
+  }
+  // the GraphQL endpoint is read by POST: its merges are read by name
+  // (mergePullRequest), not here
+  if ((method === "" || /^POST$/i.test(method)) && a.some((w) => /github\.com\/graphql(?:[?#]|$)/.test(w))) {
+    return false;
+  }
+  const m = (method !== "" ? method : body && !get ? "POST" : "GET").toUpperCase();
+  return m !== "GET" && m !== "HEAD";
+}
+
+// the tags a git tag command makes (git tag v1, git tag -a v1 -m x): none
+// when it lists (-l, --list, -n, --contains...), deletes (-d) or verifies
+// (-v)
+function tags_made(ws: string[]): string[] {
+  const out: string[] = [];
+  for (const g of calls(ws, new Set(["git"]), GIT_VALUED)) {
+    if (g.pos[0] !== "tag") {
+      continue;
+    }
+    // the words after tag: its options (-m, -F, -u take the next word),
+    // then the name
+    const at = ws.indexOf("tag", ws.findIndex((w) => w.slice(w.lastIndexOf("/") + 1) === "git"));
+    let name: string | undefined;
+    let lists = false;
+    for (let j = at + 1; j < ws.length; j++) {
+      const a = ws[j] ?? "";
+      if (/^-[a-zA-Z]*[ldvn]|^--(?:list|delete|verify|contains|no-contains|merged|no-merged|points-at|sort|format)/.test(a)) {
+        lists = true;
+      } else if (/^-[a-zA-Z]*[mFu]$|^--(?:message|file|local-user)$/.test(a)) {
+        j += 1;
+      } else if (!a.startsWith("-") && name === undefined) {
+        name = a;
+      }
+    }
+    if (!lists && name !== undefined) {
+      out.push(name);
+    }
+  }
+  return out;
+}
+
 // whether a gh api call changes main: a git/refs write naming heads/main
 // or master (in its path, or as its ref field), or one the serve can't
 // read; a contents write (PUT, DELETE) on main or master, or naming no
@@ -922,10 +1240,8 @@ function api_main(g: { pos: string[]; opts: string[][] }): boolean {
   const path = g.pos[1] ?? "";
   const fields = g.opts.filter((o) => ["-f", "-F", "--field", "--raw-field"].includes(o[0] ?? "")).map((o) => o[1] ?? "")
     .concat(g.opts.map((o) => o[0] ?? "").filter((o) => /^--(?:raw-)?field=/.test(o)).map((o) => o.replace(/^--(?:raw-)?field=/, "")));
-  const set = g.opts.map((o) => o[0] === "-X" || o[0] === "--method" ? o[1] ?? "" : /^-X.|^--method=/.test(o[0] ?? "") ? (o[0] ?? "").replace(/^-X|^--method=/, "") : null)
-    .filter((m) => m !== null);
-  const method = (set.at(-1) ?? (fields.length > 0 ? "POST" : "GET")).toUpperCase();
-  if (method === "GET" || method === "HEAD") {
+  const method = api_method(g);
+  if (method === "GET") {
     return false;
   }
   const main = (b: string) => /^(?:refs\/heads\/)?(?:main|master)$/.test(b) || /[$`*]/.test(b);
@@ -962,12 +1278,12 @@ function blind(cmd: Cmd): boolean {
   } else if (first.startsWith("-") && first !== "--" && first !== "-") {
     // -STOP, -SIGSTOP, -sigstop, -19; or glued to -s, -n: -sSTOP, -n19
     const glued = /^-[sn](.+)$/.exec(first);
-    sig = glued !== null && !/^(?:SIG)?STOP$/i.test(first.slice(1)) ? glued[1] ?? "" : first.slice(1);
+    sig = glued !== null && !FREEZE.test(first.slice(1)) ? glued[1] ?? "" : first.slice(1);
     i = 1;
   }
   // its targets (a -- among them is no process)
   const pids = a.slice(i);
-  return /^(?:SIG)?STOP$|^19$/i.test(sig) || pids.includes("-1") || pids.some((p) => /PPID/.test(p));
+  return FREEZE.test(sig) || pids.includes("-1") || pids.some((p) => /PPID/.test(p));
 }
 
 // every simple command a command runs, or may (Guard.seen), env -S's

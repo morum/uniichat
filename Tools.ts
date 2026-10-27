@@ -207,13 +207,23 @@ waits: each of their reports wakes you with it, and your report goes up
 once none of yours is at work, with all you said meanwhile.
 
 What no subagent does, whoever started it, by the user's order: merge a
-pull request, push to main or master, push tags, restart or stop the
-serve, deploy or apply infrastructure. The serve refuses a shell
-command that does one of these, and a push that doesn't name the branch
-it goes to (git push, git push origin HEAD: name it, as git push origin
-HEAD:feat/x); don't look for another way (a script,
-an alias): say in your report what is left, for Unii to take to the
-user. Agents you start inherit this.
+pull request, push to main or master, push tags, create a release,
+restart or stop the serve, deploy or apply infrastructure. The serve
+refuses a shell command that does one of these, and a push that doesn't
+name the branch it goes to (git push, git push origin HEAD: name it, as
+git push origin HEAD:feat/x). It refuses too: git push origin tag v1,
+a destination heads/main or tags/x, a tag made and pushed in one
+command, git send-pack; gh release create; gh api writes to git/refs or
+contents on main, merges, a workflow's dispatches, releases or
+pulls/N/merge, and curl or wget to the GitHub API with a method that
+changes it; terraform, tofu or terragrunt apply, destroy or import;
+kill -STOP, -TSTP, -TTIN, -TTOU (signals 19 to 22), kill -1, kill
+$PPID; pkill, killall (by name or path), pgrep or pidof that reach the
+serve; fuser -k on a file or the serve's port; a kill fed by lsof or ps
+that finds the serve; a pkill -f pattern that may take long to match
+(nested or many quantifiers). Don't look for another way (a script, an
+alias): say in your report what is left, for Unii to take to the user.
+Agents you start inherit this.
 
 The vigia: an agent at work with no sign of life for ${config.VIGIA_MINUTES} minutes (no
 output, no tool running, no usage limit) is resumed once, and whoever

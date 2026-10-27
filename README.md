@@ -22,10 +22,23 @@ Features
   subagent may spawn its own (Unii's are depth 1, theirs 2, no deeper;
   at most 4 at work under one of Unii's, 12 in all): each report goes to
   the agent that started it, which waits for its agents before its own.
-  No subagent may merge, push to main or tags, restart the serve or
-  deploy: the serve refuses such a shell command (Guard.ts), and a push
-  that doesn't name its branch (`git push`, `git push origin HEAD`),
-  which may land on main; `git push origin HEAD:feat/x` goes through.
+  No subagent may merge, push to main, push tags, create a release,
+  restart the serve or deploy: the serve refuses such a shell command
+  (Guard.ts), and a push that doesn't name its branch (`git push`,
+  `git push origin HEAD`), which may land on main; `git push origin
+  HEAD:feat/x` goes through. It also refuses: `git push origin tag v1`,
+  a destination `heads/main` or `tags/x`, a tag made and pushed in one
+  command, `git send-pack`; `gh release create`; `gh api` writes to
+  `git/refs` or `contents` on main, `merges`, a workflow's `dispatches`,
+  `releases` or `pulls/N/merge`, and `curl` or `wget` to the GitHub API
+  with a method that changes it; `terraform apply`, `destroy`,
+  `import`; `kill -STOP`, `-TSTP`, `-TTIN`, `-TTOU` (signals 19 to 22),
+  `kill -1`, `kill $PPID`; `pkill`, `killall` (by name or path),
+  `pgrep` or `pidof` that reach the serve; `fuser -k` on a file or the
+  serve's port; a kill fed by `lsof` or `ps` that finds the serve; a
+  `pkill -f` pattern that may take long to match. Limit: a tag made in
+  one command and pushed by its name in another (`git push origin v1`)
+  goes through, since the serve can't tell it from a branch.
   The vigia resumes an agent silent for 10 minutes once, telling its
   parent (or the chat), and reports it stalled if it stops again, or if
   its call doesn't end a minute after the vigia stopped it.
