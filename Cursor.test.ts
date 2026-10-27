@@ -67,6 +67,10 @@ case "$msg" in
     j '{"type":"tool_call","subtype":"started","call_id":"t1","tool_call":{"mcpToolCall":{"args":{"args":{},"providerIdentifier":"unii","toolName":"shell"}}},"session_id":"'$sid'"}'
     j '{"type":"tool_call","subtype":"completed","call_id":"t1","tool_call":{"mcpToolCall":{"args":{"args":{},"providerIdentifier":"unii","toolName":"shell"},"result":{"success":{"content":[{"text":{"text":"ok"}}]}}}},"session_id":"'$sid'"}'
     echo "Error: [resource_exhausted] You've hit your usage limit. Try again in 1 second." >&2; exit 1 ;;
+  *MODE:limitlong*)
+    # a long limit's words, PAD=n x's then an emoji (its char 300 told by the test), its bytes as \x escapes: Bun's transpiler would turn a literal emoji here into \u escapes
+    pad=$(printf '%s' "$msg" | sed -n 's/.*PAD=\([0-9]*\).*/\1/p' | head -n 1)
+    printf 'Error: [resource_exhausted] You have hit your usage limit. Resets at 2099-01-01 05:00 UTC. %s\xf0\x9f\x98\x80%s\n' "$(head -c "$pad" /dev/zero | tr '\0' x)" "$(head -c 50 /dev/zero | tr '\0' y)"; exit 1 ;;
   *MODE:limit*)
     echo "Error: [resource_exhausted] You've hit your usage limit for Claude models. Resets at 2099-01-01 05:00 UTC"; exit 1 ;;
   *MODE:unsigned*)
@@ -142,6 +146,20 @@ async function call(a: Ask, during?: (t: ReturnType<typeof Cursor.ask>) => void)
   const end = await t.done;
   return { end, evs };
 }
+
+// what a call logs to the operator (console.error), each line it printed
+async function logged_call(a: Ask, during?: (t: ReturnType<typeof Cursor.ask>) => void) {
+  const spy = spyOn(console, "error").mockImplementation(() => {});
+  try {
+    const got = await call(a, during);
+    return { ...got, lines: spy.mock.calls.map((c) => c.map(String).join(" ")) };
+  } finally {
+    spy.mockRestore();
+  }
+}
+
+// a surrogate pair's half alone (an emoji cut: shown as "�")
+const odd = (s: string) => /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(s);
 
 const has_bwrap = ["/usr/bin/bwrap", "/bin/bwrap", "/usr/local/bin/bwrap"].some((f) => fs.existsSync(f));
 
@@ -248,7 +266,6 @@ describe("Cursor.variant", () => {
   });
 
   test("a failure's log clipped never between a surrogate pair's halves: an emoji at char 300", () => {
-    const odd = (s: string) => /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(s);
     // the emoji's high half is code unit 300 (index 299): a plain slice(0, 300) would split it
     const why = "x".repeat(299) + "😀" + "y".repeat(50);
     expect(odd(why.slice(0, 300))).toBe(true);
@@ -266,6 +283,7 @@ describe("Cursor.variant", () => {
     expect(Cursor.spent("m", { runs: 1, input: 3, output: 5, read: 7, write: 11 })).toBe("cursor: m: 1 execução; tokens: entrada 3, saída 5, cache lido 7, cache gravado 11");
     expect(Cursor.spent("m", { runs: 2, input: 6, output: 10, read: 14, write: 22 })).toBe("cursor: m: 2 execuções; tokens: entrada 6, saída 10, cache lido 14, cache gravado 22");
   });
+
 });
 
 describe("a call", () => {
@@ -362,6 +380,40 @@ describe("a call", () => {
     expect(Agent.under(["cursor claude-sonnet-5-5"], false)).toBe(Date.parse("2099-01-01T05:00:00Z"));
     // another model's calls aren't held by it
     expect(Agent.under(["cursor claude-opus-5-5"], false)).toBeNull();
+  });
+
+  test("a long usage limit's log clipped never between a surrogate pair's halves: an emoji at char 300", async () => {
+    const head = "Error: [resource_exhausted] You have hit your usage limit. Resets at 2099-01-01 05:00 UTC. ";
+    // the emoji's high half is code unit 300 (index 299) of what is logged after the model
+    const pad = 299 - head.length;
+    const why = head + "x".repeat(pad) + "😀" + "y".repeat(50) + "; resets 2099-01-01 05:00 UTC";
+    expect(odd(why.slice(0, 300))).toBe(true);
+    const { end, lines } = await logged_call(ask("MODE:limitlong PAD=" + pad, { fallback: true }));
+    expect([end.ok, end.off]).toEqual([false, true]);
+    const mine = lines.filter((l) => l.startsWith("cursor: claude-sonnet-5-5: "));
+    expect(mine).toEqual(["cursor: claude-sonnet-5-5: " + head + "x".repeat(pad) + "…"]);
+    expect(odd(mine[0])).toBe(false);
+  });
+
+  test("a silence stopped logged for the operator: the first wait before a word, the idle one after", async () => {
+    Cursor.set({ bin: BIN, sandbox: "off", first: 400, idle: 1600, grace: 200 });
+    const first = await logged_call(ask("MODE:silentfirst"));
+    expect(first.lines.filter((l) => l.includes("nenhuma palavra"))).toEqual([
+      "cursor: claude-sonnet-5-5-high: nenhuma palavra em 0 s: interrompido",
+      "cursor: claude-sonnet-5-5-high: nenhuma palavra em 0 s: interrompido",
+    ]);
+    const idle = await logged_call(ask("MODE:silent"));
+    expect(idle.end.ok).toBe(true);
+    expect(idle.lines.filter((l) => l.includes("nenhuma palavra"))).toEqual(["cursor: claude-sonnet-5-5-high: nenhuma palavra em 2 s: interrompido"]);
+  }, 10000);
+
+  test("what a call's runs spent logged for the operator as it ends: one run, or more", async () => {
+    const one = await logged_call(ask("MODE:ok"));
+    expect(one.lines.filter((l) => l.includes("tokens:"))).toEqual(["cursor: claude-sonnet-5-5-high: 1 execução; tokens: entrada 3, saída 5, cache lido 7, cache gravado 11"]);
+    // a short limit, then its answer: two runs, the first spending nothing
+    const two = await logged_call(ask("MODE:limitsoon"));
+    expect(two.end.ok).toBe(true);
+    expect(two.lines.filter((l) => l.includes("tokens:"))).toEqual(["cursor: claude-sonnet-5-5-high: 2 execuções; tokens: entrada 3, saída 5, cache lido 7, cache gravado 11"]);
   });
 
   test("under a limit remembered, a call with a fallback ends before asking", async () => {
