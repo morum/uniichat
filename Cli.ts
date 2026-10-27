@@ -36,6 +36,9 @@ const USAGE = `Usage: unii [url]           the chat in this terminal (url: $UNII
        unii serve claude [logout|status]
                             the same for a Claude plan (its claude-sub
                             vendor), in Claude Code's own sign-in
+       unii serve cursor [logout|status]
+                            the same for a Cursor plan (its cursor
+                            vendor), in the Cursor CLI's own sign-in
        unii serve inbox [off]
                             a token (printed alone) that lets a script add
                             your tasks from Slack or GitHub, and only that
@@ -92,6 +95,8 @@ if (cmd === undefined) {
   await (await import("./ChatGPT.ts")).ChatGPT.cli(REST.slice(1)).catch((err) => fail(err.message));
 } else if (cmd === "serve" && sub === "claude" && [undefined, "logout", "status"].includes(more) && !odd([cmd, sub, ...(more ? [more] : [])])) {
   await (await import("./ClaudeSub.ts")).ClaudeSub.cli(REST.slice(1)).catch((err) => fail(err.message));
+} else if (cmd === "serve" && sub === "cursor" && [undefined, "logout", "status"].includes(more) && !odd([cmd, sub, ...(more ? [more] : [])])) {
+  await (await import("./Cursor.ts")).Cursor.cli(REST.slice(1)).catch((err) => fail(err.message));
 } else if (cmd === "serve" && sub === "sessions" && !odd([cmd, sub])) {
   await (await import("./Owner.ts")).Owner.sessions();
 } else if (cmd === "serve" && sub === "revoke" && more !== undefined && !odd([cmd, sub, more])) {
