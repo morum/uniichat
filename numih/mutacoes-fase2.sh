@@ -80,6 +80,8 @@ S4	Machine.ts	if (/^[\[{&*!%@`]/.test(first)) {	if (false) {
 S5	Machine.ts	? whole.slice(1, -1) : null	? whole.slice(1, -1) : whole
 S6	Machine.ts	(/^[ \t]/.test(lines[k + 1]) || lines[k + 1].trim() === "")	/^[ \t]/.test(lines[k + 1])
 S7	Machine.ts	[+-]?(?:[ \t]+#.*)?$/.exec(first)	[+-]?$/.exec(first)
+S8	Machine.ts	&*!%@`]/.test(first)	&*!%@]/.test(first)
+S9	Machine.ts	if (kv === null) {\n      continue;\n    }	if (kv === null) {\n    }
 TABELA
 )"
 

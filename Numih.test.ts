@@ -491,6 +491,24 @@ test("skills: in a frontmatter strict YAML refuses, a folded (>) or literal (|) 
   ]);
 });
 
+test("skills: in a frontmatter strict YAML refuses, a value that starts with YAML's reserved \"`\" can't be read: the skill stays out", () => {
+  const root = path.join(TMP, "crase");
+  for (const [dir, desc] of [["crase", "`valor`: x"], ["controle", "valor: x"]]) {
+    fs.mkdirSync(path.join(root, dir), { recursive: true });
+    fs.writeFileSync(path.join(root, dir, "SKILL.md"), "---\nname: " + dir + "\ndescription: " + desc + "\nx: [quebrado\n---\n# corpo\n");
+  }
+  const got = Machine.skills(path.join(TMP, "ninguem"), path.join(TMP, "nenhum"), root);
+  expect(got.map((s) => [s.name, s.description])).toEqual([["controle", "valor: x"]]);
+});
+
+test("skills: in a frontmatter strict YAML refuses, a top-level line that is no \"key: value\" (a comment, a list item) is passed over", () => {
+  const root = path.join(TMP, "sem-chave");
+  fs.mkdirSync(path.join(root, "sem-chave"), { recursive: true });
+  fs.writeFileSync(path.join(root, "sem-chave", "SKILL.md"), "---\n# x\nname: sem-chave\n- x\ndescription: lida depois: sim\nx: [quebrado\n---\n# corpo\n");
+  const got = Machine.skills(path.join(TMP, "ninguem"), path.join(TMP, "nenhum"), root);
+  expect(got.map((s) => [s.name, s.description])).toEqual([["sem-chave", "lida depois: sim"]]);
+});
+
 test("skills: a description is cut at 1024 characters", () => {
   const root = path.join(TMP, "longa");
   const long = "a".repeat(1023) + "bc" + "d".repeat(100);
