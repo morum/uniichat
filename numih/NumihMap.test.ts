@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process"
 import {
   parseGitmodules, repoDaUrl, categoria, casarPortas, entradasPortas,
   camadas, portaDevYaml, gerar, renderMarkdown,
-  segmentoSeguro, nomeCompletoSeguro, caminhoGhSeguro, ghGet,
+  segmentoSeguro, nomeCompletoSeguro, caminhoGhSeguro, ghGet, texto, codigo,
 } from "./bin/numih-map"
 
 const PORTS = {
@@ -62,6 +62,12 @@ describe("numih-map", () => {
     expect(caminhoGhSeguro(`repos/Numih/devtools/contents/infra/ports.yaml?ref=${D}`)).toBe(true)
     for (const p of ["repos/Numih/a?x=1", "repos/Numih/..", "repos/Numih/a/contents/../x?ref=" + D,
       "repos/Numih/a/contents/x?ref=main", "user", "repos/Numih/a/collaborators"]) expect(caminhoGhSeguro(p)).toBe(false)
+    // ?ref= é sempre um SHA de 40 hexadecimais minúsculos: nem menos, nem mais, nem vazio
+    const arq = "repos/Numih/devtools/contents/infra/ports.yaml?ref="
+    for (const ref of ["d".repeat(39), "d".repeat(41), "", "D".repeat(40), "d".repeat(39) + "g"]) {
+      expect(caminhoGhSeguro(arq + ref)).toBe(false)
+    }
+    expect(caminhoGhSeguro(arq + "0123456789abcdef0123456789abcdef01234567")).toBe(true)
     // a barreira vale dentro do ghGet, antes de qualquer leitura (inclusive offline)
     expect(() => ghGet("repos/Numih/a?x=1", tmpdir())).toThrow("caminho do gh api recusado")
     expect(ghGet("repos/Numih/inexistente-numih-map-teste", tmpdir())).toBeNull()
@@ -95,6 +101,13 @@ describe("numih-map", () => {
       expect(chamadas).toBe("api -X GET repos/Numih/bom\n")
       expect(mapa.modulos.map(m => m.caminho)).toEqual(["modules/bom"])
       expect(mapa.modulos[0].repo.canonico).toBeUndefined()
+      // contagem alinhada: seções = módulos no mapa + descartadas por URL
+      expect(mapa.total_secoes_gitmodules).toBe(2)
+      expect(mapa.secoes_descartadas).toEqual(["modules/mau"])
+      expect(mapa.modulos.length + mapa.secoes_descartadas.length).toBe(mapa.total_secoes_gitmodules)
+      const md = renderMarkdown(mapa)
+      expect(md).toContain("- seções no `.gitmodules`: 2 (sem gitlink: `modules/bom`) (descartadas por URL não reconhecida: `modules/mau`)\n")
+      expect(md).toContain("- módulos no mapa: 1 (seções do `.gitmodules` menos as descartadas)\n")
       const avisos = mapa.avisos.join("\n")
       expect(avisos).toContain("URL não reconhecida em `modules/mau`")
       expect(avisos).toContain('`modules/bom`: nome devolvido pelo GitHub recusado ("Numih/x?ref=mau")')
@@ -186,6 +199,8 @@ describe("numih-map", () => {
       const md = renderMarkdown(mapa)
       expect(md).toContain("- submódulos (gitlinks na main do workspace): 3\n")
       expect(md).toContain("- seções no `.gitmodules`: 4 (sem gitlink: `libs/nusip`)\n")
+      expect(mapa.secoes_descartadas).toEqual([])
+      expect(md).toContain("- módulos no mapa: 4 (seções do `.gitmodules` menos as descartadas)\n")
       expect(md).toContain("| `modules/agents` | [numih/agents](https://github.com/numih/agents) | backend, frontend | 45 |")
       expect(md).toContain("- `edge` (modules)")
       // auth-login depende de auth, mas o submódulo auth não depende de si mesmo
@@ -200,6 +215,61 @@ describe("numih-map", () => {
       expect(m2.total_gitlinks).toBe(4)
       expect(m2.total_secoes_gitmodules).toBe(4)
       expect(m2.avisos.join("\n")).toContain("`modules/orfao` tem gitlink na main mas não está no .gitmodules.")
+    } finally {
+      rmSync(t, { recursive: true, force: true })
+    }
+  })
+  test("escapa | e crase vindos do .gitmodules e do catálogo de portas", () => {
+    // Pipes não escapados de uma linha da tabela (a contrabarra escapa o seguinte)
+    const pipes = (linha: string) => {
+      let n = 0
+      for (let i = 0; i < linha.length; i++) {
+        if (linha[i] === "\\") { i++; continue }
+        if (linha[i] === "|") n++
+      }
+      return n
+    }
+    expect(texto("a|b`c<d>[e]\\f\ng")).toBe("a\\|b\\`c\\<d>\\[e\\]\\\\f g")
+    expect(codigo("a`b")).toBe("``a`b``")
+    expect(codigo("`x")).toBe("`` `x ``")
+    expect(codigo("a|b", true)).toBe("`a\\|b`")
+    expect(codigo("a|b")).toBe("`a|b`")
+    const hostil: any = {
+      nome: "x", caminho: "modules/a|b`c", categoria: "módulo", camadas: ["backend"],
+      repo: { owner: "Numih", nome: "x", url: "https://github.com/Numih/x" }, gitlink: "a".repeat(40),
+      portas: [{ nome: "p|q`r", secao: "modules", depende: ["d|e", "f`g"], portas: { idx: "1|2", "be|local": "3`4" } }],
+    }
+    const md = renderMarkdown({
+      workspace_sha: "s", fonte_portas: "f", total_gitlinks: 1, total_secoes_gitmodules: 1, secoes_descartadas: [],
+      modulos: [hostil],
+      portas_sem_submodulo: [{ nome: "z|`w", secao: "tools", portas: { local_dev: "9|9" } }],
+      avisos: [],
+    })
+    const linha = md.split("\n").find(l => l.includes("modules/a"))!
+    expect(linha).toBeDefined()
+    expect(pipes(linha)).toBe(7) // 6 colunas
+    expect(linha.startsWith("| ``modules/a\\|b`c`` | ")).toBe(true)
+    expect(linha).toContain("p\\|q\\`r: be\\|local 3\\`4")
+    expect(linha).toContain("| d\\|e, f\\`g |")
+    expect(linha).toContain("| 1\\|2 |")
+    expect(md).toContain("- ``z|`w`` (tools): local_dev 9\\|9\n")
+    // avisos montados por gerar() usam codigo(): crase no caminho não abre código solto
+    const t = mkdtempSync(join(tmpdir(), "numih-map-esc-"))
+    try {
+      const ws = join(t, "ws")
+      mkdirSync(ws)
+      const env = { ...process.env, GIT_CONFIG_GLOBAL: join(t, "gc"), GIT_CONFIG_NOSYSTEM: "1" }
+      const git = (...a: string[]) => {
+        const r = spawnSync("git", ["-C", ws, ...a], { encoding: "utf8", env })
+        if (r.status !== 0) throw new Error(r.stderr)
+      }
+      git("init", "-q", "-b", "main")
+      writeFileSync(join(ws, ".gitmodules"), ['[submodule "m"]', "\tpath = modules/a|b`c", "\turl = https://gitlab.com/x|y"].join("\n") + "\n")
+      git("add", ".gitmodules")
+      git("-c", "user.name=t", "-c", "user.email=t@t.invalid", "commit", "-qm", "ws")
+      const mapa = gerar(ws, t)
+      expect(mapa.secoes_descartadas).toEqual(["modules/a|b`c"])
+      expect(mapa.avisos).toContain("URL não reconhecida em ``modules/a|b`c``: https://gitlab.com/x\\|y")
     } finally {
       rmSync(t, { recursive: true, force: true })
     }

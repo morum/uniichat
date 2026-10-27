@@ -3,6 +3,7 @@
   "fonte_portas": "Numih/devtools@0e28e46240a5:infra/ports.yaml",
   "total_gitlinks": 81,
   "total_secoes_gitmodules": 82,
+  "secoes_descartadas": [],
   "modulos": [
     {
       "nome": ".dotfiles",

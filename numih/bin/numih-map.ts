@@ -191,18 +191,40 @@ export function portaDevYaml(doc: any): number | null {
   return typeof v === "number" ? v : null
 }
 
+// Texto que vem de fora (.gitmodules, catálogo de portas) entra no Markdown
+// escapado: | não quebra a tabela, ` não abre código, [ não abre link, < não
+// abre HTML, \ não escapa o que vem depois; quebra de linha vira espaço.
+export function texto(s: unknown): string {
+  return String(s ?? "").replace(/[\r\n]+/g, " ").replace(/[\\`|<\[\]]/g, c => "\\" + c)
+}
+
+// Trecho de código com conteúdo de fora: o delimitador tem mais crases que a
+// maior sequência de crases do conteúdo. Dentro de tabela, | vira \| (o GFM
+// trata \| na divisão das células, inclusive dentro de código).
+export function codigo(s: unknown, tabela = false): string {
+  let c = String(s ?? "").replace(/[\r\n]+/g, " ")
+  if (tabela) c = c.replace(/\|/g, "\\|")
+  const maior = Math.max(0, ...(c.match(/`+/g) ?? []).map(r => r.length))
+  const d = "`".repeat(maior + 1)
+  const pad = c.startsWith("`") || c.endsWith("`") ? " " : ""
+  return `${d}${pad}${c}${pad}${d}`
+}
+
 export function renderMarkdown(mapa: any): string {
   const l: string[] = []
   l.push("# Mapa de módulos da Numih")
   l.push("")
   l.push("> Gerado por `numih-map` — não edite à mão. Regenere com `numih-sync map`.")
   l.push("")
-  l.push(`- workspace: \`${mapa.workspace_sha}\` (Numih/workspace, main)`)
-  l.push(`- catálogo de portas: \`${mapa.fonte_portas}\``)
-  const semGitlink = (mapa.modulos as Modulo[]).filter(m => !m.gitlink).map(m => `\`${m.caminho}\``)
+  l.push(`- workspace: ${codigo(mapa.workspace_sha)} (Numih/workspace, main)`)
+  l.push(`- catálogo de portas: ${codigo(mapa.fonte_portas)}`)
+  const semGitlink = (mapa.modulos as Modulo[]).filter(m => !m.gitlink).map(m => codigo(m.caminho))
+  const descartadas: string[] = mapa.secoes_descartadas ?? []
   l.push(`- submódulos (gitlinks na main do workspace): ${mapa.total_gitlinks}`)
   l.push(`- seções no \`.gitmodules\`: ${mapa.total_secoes_gitmodules}` +
-    (semGitlink.length ? ` (sem gitlink: ${semGitlink.join(", ")})` : ""))
+    (semGitlink.length ? ` (sem gitlink: ${semGitlink.join(", ")})` : "") +
+    (descartadas.length ? ` (descartadas por URL não reconhecida: ${descartadas.map(c => codigo(c)).join(", ")})` : ""))
+  l.push(`- módulos no mapa: ${mapa.modulos.length} (seções do \`.gitmodules\` menos as descartadas)`)
   l.push("")
   l.push("Portas: BE local (humano) = 8100+idx · BE Docker / agente = 9000+idx · FE Docker / agente = 10000+idx · FE local (humano) = 11000+idx (regra `20-ports-catalog`).")
   l.push("")
@@ -220,14 +242,14 @@ export function renderMarkdown(mapa: any): string {
       const idx = m.portas.find(p => p.portas.idx != null)?.portas.idx ?? ""
       const portas = m.portas.map(p => {
         const q = p.portas
-        const partes = Object.entries(q).filter(([k]) => k !== "idx").map(([k, v]) => `${k} ${v}`)
-        return `${p.nome}: ${partes.join(", ")}`
+        const partes = Object.entries(q).filter(([k]) => k !== "idx").map(([k, v]) => `${texto(k)} ${texto(v)}`)
+        return `${texto(p.nome)}: ${partes.join(", ")}`
       }).join("<br>")
       // Dependências de todas as entradas do submódulo, sem ele mesmo
       // (auth-login depende de auth, mas ambos são o submódulo auth).
       const dep = [...new Set(m.portas.flatMap(p => p.depende ?? []))]
-        .filter(d => norm(d) !== norm(m.nome)).join(", ")
-      l.push(`| \`${m.caminho}\` | ${repo}${arq} | ${m.camadas.join(", ")} | ${idx} | ${portas} | ${dep} |`)
+        .filter(d => norm(String(d)) !== norm(m.nome)).map(texto).join(", ")
+      l.push(`| ${codigo(m.caminho, true)} | ${repo}${arq} | ${m.camadas.map(texto).join(", ")} | ${texto(idx)} | ${portas} | ${dep} |`)
     }
     l.push("")
   }
@@ -235,15 +257,16 @@ export function renderMarkdown(mapa: any): string {
     l.push("## No catálogo de portas, sem submódulo no workspace")
     l.push("")
     for (const e of mapa.portas_sem_submodulo as EntradaPortas[]) {
-      const q = Object.entries(e.portas).map(([k, v]) => `${k} ${v}`).join(", ")
-      l.push(`- \`${e.nome}\` (${e.secao}): ${q}`)
+      const q = Object.entries(e.portas).map(([k, v]) => `${texto(k)} ${texto(v)}`).join(", ")
+      l.push(`- ${codigo(e.nome)} (${texto(e.secao)}): ${q}`)
     }
     l.push("")
   }
   l.push("## Avisos")
   l.push("")
   if (!mapa.avisos.length) l.push("Nenhum.")
-  for (const a of mapa.avisos) l.push(`- ${a}`)
+  // Os avisos já vêm montados com codigo()/texto() em gerar().
+  for (const a of mapa.avisos) l.push(`- ${String(a).replace(/[\r\n]+/g, " ")}`)
   l.push("")
   return l.join("\n")
 }
@@ -302,15 +325,19 @@ export function gerar(workspace: string, offline?: string) {
   const { porSub, sobras } = casarPortas(subs, entradas)
 
   const modulos: Modulo[] = []
+  // Seções do .gitmodules que ficam fora de `modulos` (URL não reconhecida):
+  // total_secoes_gitmodules = modulos.length + secoes_descartadas.length.
+  const secoesDescartadas: string[] = []
   for (const s of subs) {
     const ref = repoDaUrl(s.url)
     const nome = base(s.caminho)
-    if (!ref) { avisos.push(`URL não reconhecida em \`${s.caminho}\`: ${s.url}`); continue }
+    const cam = codigo(s.caminho)
+    if (!ref) { secoesDescartadas.push(s.caminho); avisos.push(`URL não reconhecida em ${cam}: ${texto(s.url)}`); continue }
     const gl = gitlinks.get(s.caminho) ?? null
-    if (!gl) avisos.push(`\`${s.caminho}\` está no .gitmodules mas não tem gitlink na main do workspace.`)
+    if (!gl) avisos.push(`${cam} está no .gitmodules mas não tem gitlink na main do workspace.`)
     let meta = ghGet(`repos/${ref.owner}/${ref.nome}`, offline)
     if (meta && !nomeCompletoSeguro(meta.full_name)) {
-      avisos.push(`\`${s.caminho}\`: nome devolvido pelo GitHub recusado (${JSON.stringify(meta.full_name)}).`)
+      avisos.push(`${cam}: nome devolvido pelo GitHub recusado (${texto(JSON.stringify(meta.full_name))}).`)
       meta = null
     }
     const repo: Modulo["repo"] = { ...ref }
@@ -321,16 +348,16 @@ export function gerar(workspace: string, offline?: string) {
       repo.linguagem = meta.language ?? null
       repo.descricao = meta.description ?? null
       if (repo.renomeado && /^numih-archive\//i.test(meta.full_name)) {
-        avisos.push(`\`${s.caminho}\` aponta para ${ref.owner}/${ref.nome}, movido para ${meta.full_name} (o README manda remover do workspace o repositório arquivado).`)
+        avisos.push(`${cam} aponta para ${ref.owner}/${ref.nome}, movido para ${meta.full_name} (o README manda remover do workspace o repositório arquivado).`)
       } else if (repo.renomeado) {
-        avisos.push(`\`${s.caminho}\` aponta para ${ref.owner}/${ref.nome}, que hoje é ${meta.full_name} (renomeado ou movido; o README exige caminho e URL com o nome atual).`)
+        avisos.push(`${cam} aponta para ${ref.owner}/${ref.nome}, que hoje é ${meta.full_name} (renomeado ou movido; o README exige caminho e URL com o nome atual).`)
       }
-      if (repo.arquivado) avisos.push(`\`${s.caminho}\` aponta para repositório arquivado (${meta.full_name}).`)
+      if (repo.arquivado) avisos.push(`${cam} aponta para repositório arquivado (${meta.full_name}).`)
     } else {
       avisos.push(`Sem metadados do GitHub para ${ref.owner}/${ref.nome}.`)
     }
     if (norm(nome) !== norm(ref.nome) && !repo.renomeado) {
-      avisos.push(`\`${s.caminho}\`: caminho difere do nome do repositório (${ref.owner}/${ref.nome}).`)
+      avisos.push(`${cam}: caminho difere do nome do repositório (${ref.owner}/${ref.nome}).`)
     }
     const cat = categoria(s.caminho)
     const portas = porSub.get(s.caminho) ?? []
@@ -345,10 +372,10 @@ export function gerar(workspace: string, offline?: string) {
       const txt = conteudo(owner, rnome, "module.dev.yaml", gl, offline)
       if (txt) {
         let p: number | null = null
-        try { p = portaDevYaml(Bun.YAML.parse(txt)) } catch { avisos.push(`\`${s.caminho}\`: module.dev.yaml inválido.`) }
+        try { p = portaDevYaml(Bun.YAML.parse(txt)) } catch { avisos.push(`${cam}: module.dev.yaml inválido.`) }
         const diverge = p != null && p !== portaMod.portas.be_local
         m.dev_yaml = { porta_backend_local: p, diverge }
-        if (diverge) avisos.push(`\`${s.caminho}\`: module.dev.yaml usa a porta ${p}, mas o catálogo dá be_local ${portaMod.portas.be_local} (idx ${portaMod.portas.idx}). O catálogo é a fonte da verdade.`)
+        if (diverge) avisos.push(`${cam}: module.dev.yaml usa a porta ${p}, mas o catálogo dá be_local ${portaMod.portas.be_local} (idx ${portaMod.portas.idx}). O catálogo é a fonte da verdade.`)
       } else {
         m.dev_yaml = null
       }
@@ -357,7 +384,7 @@ export function gerar(workspace: string, offline?: string) {
   }
 
   for (const caminho of gitlinks.keys()) {
-    if (!subs.some(s => s.caminho === caminho)) avisos.push(`\`${caminho}\` tem gitlink na main mas não está no .gitmodules.`)
+    if (!subs.some(s => s.caminho === caminho)) avisos.push(`${codigo(caminho)} tem gitlink na main mas não está no .gitmodules.`)
   }
 
   return {
@@ -365,6 +392,7 @@ export function gerar(workspace: string, offline?: string) {
     fonte_portas: fonte,
     total_gitlinks: gitlinks.size,
     total_secoes_gitmodules: subs.length,
+    secoes_descartadas: secoesDescartadas,
     modulos,
     portas_sem_submodulo: sobras,
     avisos,
@@ -384,5 +412,5 @@ if (import.meta.main) {
   mkdirSync(out, { recursive: true })
   writeFileSync(join(out, "modulos.json"), JSON.stringify(mapa, null, 2) + "\n")
   writeFileSync(join(out, "MODULOS.md"), renderMarkdown(mapa))
-  console.log(`mapa: ${mapa.total_gitlinks} submódulos com gitlink (${mapa.total_secoes_gitmodules} seções no .gitmodules), ${mapa.portas_sem_submodulo.length} entradas de porta sem submódulo, ${mapa.avisos.length} avisos -> ${out}`)
+  console.log(`mapa: ${mapa.total_gitlinks} submódulos com gitlink (${mapa.total_secoes_gitmodules} seções no .gitmodules, ${mapa.modulos.length} no mapa, ${mapa.secoes_descartadas.length} descartadas), ${mapa.portas_sem_submodulo.length} entradas de porta sem submódulo, ${mapa.avisos.length} avisos -> ${out}`)
 }
