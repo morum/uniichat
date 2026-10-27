@@ -14,6 +14,12 @@ referência, o mapa de módulos e o plano de como as regras chegarão aos agente
 | `FASE2-REGRAS.md` | Plano de como as regras do `cursor` chegarão aos agentes do Unii. |
 | `test-numih-sync.sh`, `NumihMap.test.ts` | Testes (remotos locais e fixtures; não usam a rede nem `~/.unii/numih`). |
 | `mutacoes.sh` | Aplica cada mutação conhecida numa cópia temporária e confere que os testes a pegam. |
+| `mutacoes-fase2.sh` | Mutações da fase 2 (regras no prompt, skills): cada uma numa cópia do repositório, contra `Numih.test.ts` e `Labels.test.ts`, depois de um controle sem mutação. |
+| `PILOTO-mcp-agentes.md` | Onde está o repositório MCP da Numih e como um agente do Unii se conectaria a ele (só levantamento; o piloto é da fase 6). |
+
+A fase 2 (regras do `cursor` no prompt dos agentes e skills em todas as
+tarefas) está no servidor: `Numih.ts`, `Tools.ts` (`spawn` com `numih`),
+`Machine.ts` (skills) e `Numih.test.ts`. Ver `FASE2-REGRAS.md`.
 
 ## Cópias de referência (`~/.unii/numih`)
 

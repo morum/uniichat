@@ -113,7 +113,7 @@ export type Panel = { at: string; fronts: Front[]; refreshing: boolean };
 const AGENTS_DIR = "/docs/agent/";
 
 // an agent's note (Tools.ts SUB_ROLE)
-const NOTE = /^subagent(?: on (\S+))?(?: at effort (\S+))?(?:, labeled (.+))?$/s;
+const NOTE = /^subagent(?: on (\S+))?(?: at effort (\S+))?(?: with the Numih rules)?(?:, labeled (.+))?$/s;
 
 // a role, by its label's words
 const VERIF  = /(^|-)(verif\w*|verificador\w*|revis\w*|review\w*)(-|$)/i;

@@ -218,6 +218,21 @@ Settings page). Each may also be set as `UNII_<KEY>`, which wins. Besides
 - `owner_name`: your names as the chat calls you, comma-separated
   ("Guilherme"), so "depende da ordem do Guilherme" is a question to you
   (none by default; read at the start).
+- `numih_home` (where `numih-sync` keeps the Numih reference copies:
+  a path from `/` or `~/`; unset, `$NUMIH_HOME` if absolute, as
+  `numih-sync` reads it, else `~/.unii/numih`) and `numih_rules_max`
+  (131072): a subagent spawned with `numih: true` gets the Numih rules
+  in its system prompt, whatever its vendor: the core of `Numih/cursor`
+  whole (`cursor/dist/managed/CLAUDE.md`) and an index of its rules by
+  path (`Numih.ts`). Above `numih_rules_max` bytes, or missing, they are
+  not injected and a notice says why; the server logs the bytes of the
+  text injected at each call. The cursor's skills
+  (`cursor/dist/claude-plugin/skills`, but `claude-mem-memory`) are a
+  device's skills in every task, read from the same `numih_home`: the
+  server sends it in the device's skills and skill jobs, and the device
+  reads it by the same rule (`Machine.numih_home`, "~/" being the
+  device's home). A device whose server sends none (an older server)
+  uses `$NUMIH_HOME` or `~/.unii/numih`.
 
 The prompts: `~/.unii/prompt.md` (every turn; subagents get it too)
 and `~/.unii/compact.md` (every summary, nothing else) replace the

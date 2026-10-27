@@ -31,6 +31,7 @@ import * as config from "./Config.ts";
 import { INT, Machine, STR, TOOLS, VIDEO_LIMIT, spec, type Job, type Skill, type Spec } from "./Machine.ts";
 import { Mcp, type Server, type Servers } from "./Mcp.ts";
 import { Memory } from "./Memory.ts";
+import { Numih } from "./Numih.ts";
 import PROMPT from "./prompt.txt" with { type: "text" };
 import COMPACT_PROMPT from "./compact.txt" with { type: "text" };
 import { EFFORTS, Pick } from "./Pick.ts";
@@ -65,7 +66,7 @@ export type Link = { send: (msg: object) => void; live: () => boolean; work: str
 export type Agent = {
   name    : string;
   label   : string | null; // what the user reads it as (Tools.start)
-  role    : { effort: string | null; model: string | null };
+  role    : { effort: string | null; model: string | null; numih: boolean }; // numih: the Numih rules in its system prompt (Numih.ts)
   call    : Call | null;
   live    : Live[];
   calls   : Record<string, string>; // its tool calls awaiting their results, by id (Chat.on)
@@ -181,8 +182,9 @@ an agent's whole chat.`;
 const SUB_NOTE   = "subagent";
 const SUB_ON     = " on ";
 const SUB_AT     = " at effort ";
+const SUB_NUMIH  = " with the Numih rules";
 const SUB_AS     = ", labeled ";
-const SUB_ROLE   = new RegExp("^" + SUB_NOTE + "(?:" + SUB_ON + "(\\S+))?(?:" + SUB_AT + "(\\S+))?(?:" + SUB_AS + "(.+))?$", "s"); // s: a label edited by hand with a line break (U+2028...) still reads
+const SUB_ROLE   = new RegExp("^" + SUB_NOTE + "(?:" + SUB_ON + "(\\S+))?(?:" + SUB_AT + "(\\S+))?(" + SUB_NUMIH + ")?(?:" + SUB_AS + "(.+))?$", "s"); // s: a label edited by hand with a line break (U+2028...) still reads
 
 // a label's most characters (graphemes: an emoji's parts are never cut
 // apart), and most code points, so marks piled on them can't make it long
@@ -259,7 +261,7 @@ const NEXT_DUE_SPEC = { type: "string", description: "When the next step is due:
 const STATUS_SPEC = { type: "string", enum: ["open", "waiting_user", "blocked"], description: "An open task's status: open (being worked on); waiting_user (yours, waiting for something only the user can give: status_why says what; it shows in their Agora); blocked (status_why: why; unblock: what unblocks it). An order received is the user's pick, never set." };
 const AGENT_SPEC = { type: "string", description: "The agent at work on it now, by name (its generated name or its label): for a task of yours, who follows it up, so the views show it and a task with no agent at work is seen as stalled. \"\" for none." };
 const BOSS: Spec[] = [
-  spec("spawn", "Start one subagent per task, in parallel, and return their names at once. Each one's report reaches you as a message \"[Name] report\" when it finishes. A subagent sees the view and the user's instructions, but knows what you want only from its task.", { tasks: { type: "array", items: STR }, labels: { type: "array", items: STR, description: "A short label per task, in the tasks' order, that the user reads as that subagent's name instead of its generated one: <project>-<role>, as num-3182-verifier or uniichat-links-impl. Give one for every task. You still name it by its generated name in tell, stop and zoom." }, effort: { type: "string", enum: EFFORTS, description: "How hard they think; by default, as hard as you." }, model: { type: "string", enum: MODELS, description: "Their model (\"vendor:model\" names its vendor too, as cursor:sonnet-5.5); by default, the one they'd run on. Set it ONLY when the user asks for that model or vendor in this chat, since another vendor may come with additional costs." } }, ["tasks"]),
+  spec("spawn", "Start one subagent per task, in parallel, and return their names at once. Each one's report reaches you as a message \"[Name] report\" when it finishes. A subagent sees the view and the user's instructions, but knows what you want only from its task.", { tasks: { type: "array", items: STR }, labels: { type: "array", items: STR, description: "A short label per task, in the tasks' order, that the user reads as that subagent's name instead of its generated one: <project>-<role>, as num-3182-verifier or uniichat-links-impl. Give one for every task. You still name it by its generated name in tell, stop and zoom." }, effort: { type: "string", enum: EFFORTS, description: "How hard they think; by default, as hard as you." }, model: { type: "string", enum: MODELS, description: "Their model (\"vendor:model\" names its vendor too, as cursor:sonnet-5.5); by default, the one they'd run on. Set it ONLY when the user asks for that model or vendor in this chat, since another vendor may come with additional costs." }, numih: { type: "boolean", description: "true when the tasks work in Numih repositories (github.com/Numih): each subagent then gets the Numih rules in its system prompt (the cursor's core rules whole, about 18 thousand tokens, and the index of its rules by path), whatever its vendor. By default, false." } }, ["tasks"]),
   spec("tell", "Send a message to a subagent, by name. One at work reads it between its tool calls, and its report answers it; an idle one goes on from its chat, and its reply reaches you as a message \"[Name] reply\".", { name: STR, message: STR }, ["name", "message"]),
   spec("schedule", "Schedule a message to yourself: at its time it reaches you as a message \"[Timer id]\" from the timer, not the user, starting a turn as a report does, whether or not the user is online. Give `at` to send it once, or `cron` to send it again and again, and the time zone both are read in (the user's). Write the message as the task to do then, whole: by then this turn is far back in the view.", {
     message : STR,
@@ -391,12 +393,14 @@ export namespace Tools {
     return { text: lines.length === 0 ? "" : SKILLS + "\n" + lines.join("\n") + "\n\n", mark: false };
   }
 
-  // each open device's skills, asked as a job; one that fails (a unii
-  // from before skills) has none
+  // each open device's skills, asked as a job that carries config
+  // numih_home (Machine.numih_home: the cursor's skills from the dir the
+  // Numih rules come from); one that fails (a unii from before skills)
+  // has none
   export async function look(tools: Tools, only: string | null = null): Promise<void> {
     const live = Tools.opened(tools).filter(([name, d]) => (only === null || name === only) && [...d.terms.values()].some((t) => t.live()));
     await Promise.all(live.map(async ([name, d]) => {
-      const run = Tools.start_job(tools, name, { name: "skills", input: {}, cwd: "main" }, crypto.randomUUID());
+      const run = Tools.start_job(tools, name, { name: "skills", input: { numih: config.NUMIH_SET }, cwd: "main" }, crypto.randomUUID());
       if (typeof run === "string") {
         return;
       }
@@ -561,7 +565,10 @@ export namespace Tools {
           return { text: "No model " + model + "; one of " + MODELS.join(", ") + ".", fail: true };
         }
         const labels = Array.isArray(args.labels) ? args.labels.map((l: unknown) => (typeof l === "string" ? l : "")) : [];
-        return { text: await Tools.spawn(tools, (args.tasks ?? []).map(String), effort, model, labels), fail: false };
+        if (args.numih !== undefined && typeof args.numih !== "boolean") {
+          return { text: "numih is true or false.", fail: true };
+        }
+        return { text: await Tools.spawn(tools, (args.tasks ?? []).map(String), effort, model, labels, args.numih === true), fail: false };
       }
       case "tell": {
         return { text: await Tools.tell(tools, String(args.name), String(args.message)), fail: false };
@@ -585,7 +592,7 @@ export namespace Tools {
         return { text: n === 0 ? "No call was waiting for a usage limit." : "Woke " + n + " call" + (n === 1 ? "" : "s") + " waiting for a usage limit; any still limited waits again.", fail: false };
       }
       case "skill": {
-        return Tools.job(tools, String(args.device), { name, input: { name: String(args.name) }, cwd: "main" }, signal, id);
+        return Tools.job(tools, String(args.device), { name, input: { name: String(args.name), numih: config.NUMIH_SET }, cwd: "main" }, signal, id);
       }
       case "restart": {
         return Tools.restart(tools, args, Restart.how(process.env));
@@ -827,12 +834,12 @@ export namespace Tools {
   // Agents
   // ------
 
-  export async function spawn(tools: Tools, tasks: string[], effort: string | null, model: string | null = null, labels: string[] = []): Promise<string> {
+  export async function spawn(tools: Tools, tasks: string[], effort: string | null, model: string | null = null, labels: string[] = [], numih = false): Promise<string> {
     const view = tasks.length === 0 ? "No tasks." : await Tools.view(tools);
     if (typeof view === "string") {
       return view;
     }
-    const names = tasks.map((task, k) => Tools.start(tools, { effort, model }, task, view, labels[k] ?? ""));
+    const names = tasks.map((task, k) => Tools.start(tools, { effort, model, numih }, task, view, labels[k] ?? ""));
     return "Started " + names.map((name) => Tools.named(tools, name)).join(", ") + ". Each one's report will reach you as a message when it finishes.";
   }
 
@@ -874,7 +881,7 @@ export namespace Tools {
     if (shown !== null) {
       tools.labels.set(name, shown);
     }
-    tools.hooks.push(agent, "note", SUB_NOTE + (role.model === null ? "" : SUB_ON + role.model) + (role.effort === null ? "" : SUB_AT + role.effort) + (shown === null ? "" : SUB_AS + shown));
+    tools.hooks.push(agent, "note", SUB_NOTE + (role.model === null ? "" : SUB_ON + role.model) + (role.effort === null ? "" : SUB_AT + role.effort) + (role.numih ? SUB_NUMIH : "") + (shown === null ? "" : SUB_AS + shown));
     tools.hooks.push(agent, "user", task);
     Tools.run(tools, agent);
     return name;
@@ -886,7 +893,7 @@ export namespace Tools {
     const note = log !== null && log.length > 0 && log[0].kind === "note" ? log[0].text : "";
     const sub = SUB_ROLE.exec(note);
     if (sub !== null) {
-      tools.agents.set(name, { name, label: Tools.label_clean(sub[3] ?? ""), role: { effort: sub[2] ?? null, model: sub[1] ?? null }, call: null, live: [], calls: {}, stop: false, why: null, view: [], replies: [] });
+      tools.agents.set(name, { name, label: Tools.label_clean(sub[4] ?? ""), role: { effort: sub[2] ?? null, model: sub[1] ?? null, numih: sub[3] !== undefined }, call: null, live: [], calls: {}, stop: false, why: null, view: [], replies: [] });
     }
     return tools.agents.get(name) ?? null;
   }
@@ -916,7 +923,7 @@ export namespace Tools {
   export function labels(mem: Memory): Map<string, string> {
     const out = new Map<string, string>();
     for (const [name, note] of Memory.agent_heads(mem)) {
-      const label = Tools.label_clean(SUB_ROLE.exec(note)?.[3] ?? "");
+      const label = Tools.label_clean(SUB_ROLE.exec(note)?.[4] ?? "");
       if (label !== null) {
         out.set(name, label);
       }
@@ -951,13 +958,21 @@ export namespace Tools {
     tools.hooks.report(agent, report_text(agent.name, agent.replies.join("\n\n")), agent.stop);
   }
 
-  // a call of an agent, on Tools.pick
+  // a call of an agent, on Tools.pick. One of a Numih task gets the
+  // Numih rules (or the notice of why not) after SUB, before the user's
+  // prompt, so the user's instructions stay at its end; logged
   export function ask(tools: Tools, agent: Agent): Ask {
     const log = { text: Memory.agent_show(tools.mem, agent.name), mark: true };
     const server = Tools.at(tools, agent.name);
     const run = Pick.ask(Tools.pick(tools, agent));
     const own = Memory.file_text(PROMPTS.prompt.file);
-    const system = own === "" ? SUB : SUB + "\n\n" + AGENT_PROMPT + "\n\n" + own;
+    let sub = SUB;
+    if (agent.role.numih) {
+      const pack = Numih.pack();
+      console.log(Numih.log_line(agent.name, pack));
+      sub += "\n\n" + pack.text;
+    }
+    const system = own === "" ? sub : sub + "\n\n" + AGENT_PROMPT + "\n\n" + own;
     const blocks = [...agent.view, Tools.devices(tools), Tools.skills(tools), log];
     const effort = agent.role.effort ?? run.effort;
     return { ...run, effort, system, blocks, searches: SEARCHES, server, agent: true };
