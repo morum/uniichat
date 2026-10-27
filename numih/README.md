@@ -172,9 +172,9 @@ Duas execuções simultâneas se serializam por uma trava (`flock` em
 ## Testes
 
 ```bash
-bash numih/test-numih-sync.sh   # 628 verificações com remotos git locais num tmp próprio
+bash numih/test-numih-sync.sh   # 633 verificações com remotos git locais num tmp próprio
 bun test numih/                 # 14 testes do gerador do mapa (repositório git, fixtures, gh falso)
-bash numih/mutacoes.sh          # 79 mutações (IDs A1, S22…S44, B1…B6, V01, T07, M01…M04, M11, M11b, M13, C5a/C5b, N1/N1m, F1/F2, V1…V21, E1…E6, P5, P6, P12, G1…G3, X7/X7w/X7h, M1…M3 no script e no gerador; FW, FA, FB, FP no filtro estrito do próprio teste); todas precisam morrer
+bash numih/mutacoes.sh          # 81 mutações (IDs A1, S22…S44, B1…B6, V01, T07, M01…M04, M11, M11b, M13, C5a/C5b, N1/N1m, F1/F2, V1…V21, E1…E6, P5, P6, P12, G1…G3, X7/X7w/X7h, M1…M3 no script e no gerador; FW, FA, FB, FC, FD, FP no filtro estrito do próprio teste); todas precisam morrer
 ```
 
 Algumas verificações são estruturais, porque o comportamento não muda sem a
@@ -206,14 +206,17 @@ segundo `-C`, um `--git-dir`, um `--work-tree` ou outro `-c` (como
 `core.worktree`) apontados para a pasta vazia são pegos (mutações M1 a M3);
 os argumentos depois do subcomando não são conferidos. O filtro também é
 testado sozinho, com chamadas reais pelo git falso: as legítimas passam
-(`git -C workspace rev-parse`, com e sem as opções fixas, inclusive com
+(`git -C workspace rev-parse` e `git -C cursor rev-parse`, com e sem as
+opções fixas, inclusive com
 ` pwd=` no caminho de `NUMIH_HOME`, porque os argumentos vão até a última
 ocorrência de ` pwd=` da linha) e as desviadas são pegas, entre elas
 `GIT_WORK_TREE` no ambiente e o prefixo aceito depois de outra coisa
 (`-C mod/lib -C workspace`, `--git-dir=<mod/lib> -C workspace` e
-`-C workspace` só nos argumentos do subcomando), já que o prefixo é
-ancorado no começo dos argumentos. Mutações desse filtro (FW, FA, FB e FP)
-precisam ser pegas por esses casos. O registro só vê o git chamado pelo
+`-C workspace` só nos argumentos do subcomando, e os mesmos três com
+`cursor` no lugar de `workspace`), já que os dois prefixos são ancorados
+no começo dos argumentos. Mutações desse filtro (FW; FA e FB no ramo da
+workspace; FC e FD no ramo da cursor; FP) precisam ser pegas por esses
+casos. O registro só vê o git chamado pelo
 `PATH`; um git chamado por caminho absoluto não apareceria nele. O do
 `check` final, com a cópia refeita, precisa citá-la e ter essas linhas
 pegas pelo mesmo filtro, que ainda precisa aceitar as da workspace e da

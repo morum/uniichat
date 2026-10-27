@@ -922,8 +922,22 @@ filtro_caso "--git-dir de mod/lib antes de -C workspace" pega "$T" --git-dir="$H
 # git rodado em mod/lib, com -C workspace só nos argumentos do subcomando;
 # «mod/lib/.» tem o comprimento de «workspace», então um filtro que achasse
 # o prefixo em qualquer ponto e cortasse no comprimento dele cairia em
-# «rev-parse» e aceitaria a linha.
+# «rev-parse» e aceitaria a linha (mutação FA; a FB corta depois do prefixo
+# achado e cai em «status»).
 filtro_caso "git -C mod/lib/. com -C workspace nos argumentos do subcomando" pega "$T" -C "$HF/mod/lib/." rev-parse --git-dir -C "$HF/workspace" status
+# Os mesmos casos no ramo da cursor (mutações FC e FD): o prefixo
+# -C <home>/cursor também é ancorado no começo dos argumentos. «/mod/lib» tem
+# o comprimento de «/cursor » (com o espaço), então um filtro que achasse o
+# prefixo da cursor em qualquer ponto e cortasse no comprimento dele cairia
+# em « rev-parse» e aceitaria a linha de -C mod/lib (mutação FC); um que
+# cortasse depois do prefixo achado (mutação FD) cairia no subcomando ou em
+# «status» e aceitaria as três linhas desviadas.
+filtro_caso "git -C cursor rev-parse, sem as opções do script (controle legítimo)" passa "$T" -C "$HF/cursor" rev-parse --git-dir
+filtro_caso "-C mod/lib antes de -C cursor" pega "$T" -C "$HF/mod/lib" -C "$HF/cursor" rev-parse --git-dir
+[ "$(git --git-dir="$HF/mod/lib/.git" -C "$HF/cursor" rev-parse --absolute-git-dir 2>/dev/null)" = "$HF/mod/lib/.git" ] \
+  && ok "filtro: controle, --git-dir absoluto antes de -C cursor chega a mod/lib" || falha "filtro: controle, --git-dir absoluto antes de -C cursor não chega a mod/lib"
+filtro_caso "--git-dir de mod/lib antes de -C cursor" pega "$T" --git-dir="$HF/mod/lib/.git" -C "$HF/cursor" rev-parse --git-dir
+filtro_caso "git -C mod/lib com -C cursor nos argumentos do subcomando" pega "$T" -C "$HF/mod/lib" rev-parse --git-dir -C "$HF/cursor" status
 # NUMIH_HOME com « pwd=» no caminho (mutação FP): o filtro separa os
 # argumentos na ÚLTIMA ocorrência de « pwd=» (a do diretório corrente que o
 # git falso grava), então a chamada legítima continua aceita.

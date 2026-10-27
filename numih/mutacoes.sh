@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Mutações do numih-sync, do numih-map e do filtro estrito do próprio teste
-# (fora_de_ws_cursor, IDs FW, FA, FB e FP): cada uma altera UMA linha numa
+# (fora_de_ws_cursor, IDs FW, FA, FB, FC, FD e FP): cada uma altera UMA linha numa
 # cópia temporária de numih/ e roda o teste que deveria pegá-la. Uma mutação é
 # «morta» quando o teste falha; «SOBREVIVEU» quando o teste ainda passa.
 # Nada roda fora do tmp: os testes já isolam HOME, NUMIH_HOME, GH_CONFIG_DIR e
@@ -98,6 +98,8 @@ M3	bin/numih-sync	sync	  integra "$nome" "$dir" || return 1\n  if [ "$fetch" = 1
 FW	test-numih-sync.sh	sync	substr($0, length($0) - length(fim) + 1) != fim { print; next }	$0 !~ / gitdir= worktree=[^ ]*$/ { print; next }
 FA	test-numih-sync.sh	sync	if (substr(a, 1, length(pw)) == pw) resto	if (index(a, pw)) resto
 FB	test-numih-sync.sh	sync	if (substr(a, 1, length(pw)) == pw) resto = substr(a, length(pw) + 1)	if ((q = index(a, pw))) resto = substr(a, q + length(pw))
+FC	test-numih-sync.sh	sync	else if (substr(a, 1, length(pc)) == pc) resto	else if (index(a, pc)) resto
+FD	test-numih-sync.sh	sync	else if (substr(a, 1, length(pc)) == pc) resto = substr(a, length(pc) + 1)	else if ((q = index(a, pc))) resto = substr(a, q + length(pc))
 FP	test-numih-sync.sh	sync	j = 0; while ((k = index(substr($0, j + 1), " pwd=")) > 0) j += k	j = index($0, " pwd=")
 TABELA
 )"
