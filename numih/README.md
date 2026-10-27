@@ -43,13 +43,33 @@ numih/bin/numih-sync install        # copia os scripts para ~/.unii/numih/bin
 ```
 
 O `sync` é idempotente e só avança por fast-forward. Se uma cópia estiver fora
-da `main`, com alteração local, com commit local, rasa ou com submódulo
-inicializado, ele para com erro e não toca nela. Recusa `NUMIH_HOME` relativo,
-igual ao `HOME` ou dentro de `~/repository`.
+da `main`, com alteração local, com commit local, rasa, com submódulo
+inicializado, com a `origin` trocada ou com o histórico reescrito na origin, ele
+para com erro e não toca nela. Se a busca falhar (rede, remoto inacessível),
+`sync` e `check` saem com erro (1), nunca com «em dia». Recusa `NUMIH_HOME`
+relativo, igual ao `HOME` ou dentro de `~/repository`, sem criar nada.
+
+Os ganchos de recusa ficam no `.git/hooks` de cada cópia, e o `core.hooksPath`
+é fixado no config **local** da cópia. Um `core.hooksPath` global do usuário
+nunca é lido para escrita nem alterado.
+
+Duas execuções simultâneas se serializam por uma trava (`flock` em
+`$NUMIH_HOME/.lock`): a segunda espera até `NUMIH_LOCK_WAIT` segundos (padrão
+120) e, se a trava não sair, desiste com erro.
 
 ## Testes
 
 ```bash
-bash numih/test-numih-sync.sh   # 34 verificações com remotos git locais num tmp próprio
-bun test numih/                 # gerador do mapa com repositório git e fixtures
+bash numih/test-numih-sync.sh   # 68 verificações com remotos git locais num tmp próprio
+bun test numih/                 # 8 testes do gerador do mapa (repositório git, fixtures, gh falso)
 ```
+
+Os testes usam `HOME`, `NUMIH_HOME`, config global do git e `GH_CONFIG_DIR`
+temporários. Isso **não** isola as credenciais do `gh`: ele pode achá-las no
+chaveiro do sistema (keyring), que não depende do `HOME`. Por isso nenhum teste
+chama o `gh` real nem a rede: o `numih-sync` é testado com remotos locais, e o
+`numih-map`, com fixtures (`--offline`) ou com um `gh` falso no `PATH`.
+
+O cabeçalho do `MODULOS.md` conta os gitlinks reais da `main` do workspace
+(81) e, à parte, as seções do `.gitmodules` (82): `libs/nusip` tem seção, mas
+não tem gitlink.
