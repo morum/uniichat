@@ -938,6 +938,31 @@ filtro_caso "-C mod/lib antes de -C cursor" pega "$T" -C "$HF/mod/lib" -C "$HF/c
   && ok "filtro: controle, --git-dir absoluto antes de -C cursor chega a mod/lib" || falha "filtro: controle, --git-dir absoluto antes de -C cursor não chega a mod/lib"
 filtro_caso "--git-dir de mod/lib antes de -C cursor" pega "$T" --git-dir="$HF/mod/lib/.git" -C "$HF/cursor" rev-parse --git-dir
 filtro_caso "git -C mod/lib com -C cursor nos argumentos do subcomando" pega "$T" -C "$HF/mod/lib" rev-parse --git-dir -C "$HF/cursor" status
+# O que vem DEPOIS do prefixo -C <home>/cursor também é conferido (mutações FE
+# e FF, que fazem o ramo da cursor aceitar toda linha com esse prefixo): os
+# mesmos desvios para mod/lib que o ramo da workspace pega (segundo -C,
+# --git-dir, --work-tree, -c core.worktree) e um subcomando fora da lista
+# fechada. Os controles conferem com o git real que o segundo -C, o --git-dir
+# e o --work-tree, depois de -C cursor, chegam mesmo a mod/lib; o -c
+# core.worktree não tem controle (o git 2.56 o ignora, como acima).
+[ "$(git -C "$HF/cursor" -C ../mod/lib rev-parse --show-toplevel 2>/dev/null)" = "$HF/mod/lib" ] \
+  && ok "filtro: controle, segundo -C depois de -C cursor chega a mod/lib" || falha "filtro: controle, segundo -C depois de -C cursor não chega a mod/lib"
+[ "$(git -C "$HF/cursor" --git-dir=../mod/lib/.git rev-parse --absolute-git-dir 2>/dev/null)" = "$HF/mod/lib/.git" ] \
+  && ok "filtro: controle, --git-dir depois de -C cursor chega a mod/lib" || falha "filtro: controle, --git-dir depois de -C cursor não chega a mod/lib"
+[ "$(git -C "$HF/cursor" --work-tree=../mod/lib rev-parse --show-toplevel 2>/dev/null)" = "$HF/mod/lib" ] \
+  && ok "filtro: controle, --work-tree depois de -C cursor chega a mod/lib" || falha "filtro: controle, --work-tree depois de -C cursor não chega a mod/lib"
+filtro_caso "cursor: git -C cursor -C ../mod/lib rev-parse" pega "$T" -C "$HF/cursor" -C ../mod/lib rev-parse --git-dir
+filtro_caso "cursor: segundo -C depois das opções do script" pega "$T" -C "$HF/cursor" "${OPTS_G[@]}" -C ../mod/lib rev-parse --git-dir
+filtro_caso "cursor: --git-dir=../mod/lib/.git" pega "$T" -C "$HF/cursor" --git-dir=../mod/lib/.git rev-parse --git-dir
+filtro_caso "cursor: --git-dir separado depois das opções do script" pega "$T" -C "$HF/cursor" "${OPTS_G[@]}" --git-dir ../mod/lib/.git rev-parse --git-dir
+filtro_caso "cursor: --work-tree=../mod/lib" pega "$T" -C "$HF/cursor" "${OPTS_G[@]}" --work-tree=../mod/lib status --porcelain
+filtro_caso "cursor: -c core.worktree=../mod/lib status" pega "$T" -C "$HF/cursor" -c core.worktree=../mod/lib status --porcelain
+filtro_caso "cursor: -c core.worktree depois das opções do script" pega "$T" -C "$HF/cursor" "${OPTS_G[@]}" -c core.worktree=../../mod/lib status --porcelain
+filtro_caso "cursor: subcomando fora da lista fechada (worktree list)" pega "$T" -C "$HF/cursor" worktree list
+filtro_caso "cursor: subcomando fora da lista depois das opções do script" pega "$T" -C "$HF/cursor" "${OPTS_G[@]}" worktree list
+GIT_DIR="$HF/mod/lib/.git" filtro_caso "cursor: git -C cursor com GIT_DIR no ambiente" pega "$T" -C "$HF/cursor" rev-parse --git-dir
+GIT_WORK_TREE="$HF/mod/lib" filtro_caso "cursor: git -C cursor com GIT_WORK_TREE no ambiente" pega "$T" -C "$HF/cursor" status --porcelain
+filtro_caso "cursor: git -C cursor, subcomando da lista (status)" passa "$T" -C "$HF/cursor" status --porcelain
 # NUMIH_HOME com « pwd=» no caminho (mutação FP): o filtro separa os
 # argumentos na ÚLTIMA ocorrência de « pwd=» (a do diretório corrente que o
 # git falso grava), então a chamada legítima continua aceita.

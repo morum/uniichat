@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Mutações do numih-sync, do numih-map e do filtro estrito do próprio teste
-# (fora_de_ws_cursor, IDs FW, FA, FB, FC, FD e FP): cada uma altera UMA linha numa
+# (fora_de_ws_cursor, IDs FW, FA, FB, FC, FD, FE, FF e FP): cada uma altera UMA linha numa
 # cópia temporária de numih/ e roda o teste que deveria pegá-la. Uma mutação é
 # «morta» quando o teste falha; «SOBREVIVEU» quando o teste ainda passa.
 # Nada roda fora do tmp: os testes já isolam HOME, NUMIH_HOME, GH_CONFIG_DIR e
@@ -100,6 +100,8 @@ FA	test-numih-sync.sh	sync	if (substr(a, 1, length(pw)) == pw) resto	if (index(a
 FB	test-numih-sync.sh	sync	if (substr(a, 1, length(pw)) == pw) resto = substr(a, length(pw) + 1)	if ((q = index(a, pw))) resto = substr(a, q + length(pw))
 FC	test-numih-sync.sh	sync	else if (substr(a, 1, length(pc)) == pc) resto	else if (index(a, pc)) resto
 FD	test-numih-sync.sh	sync	else if (substr(a, 1, length(pc)) == pc) resto = substr(a, length(pc) + 1)	else if ((q = index(a, pc))) resto = substr(a, q + length(pc))
+FE	test-numih-sync.sh	sync	else if (substr(a, 1, length(pc)) == pc) resto = substr(a, length(pc) + 1)	else if (substr(a, 1, length(pc)) == pc) next
+FF	test-numih-sync.sh	sync	else if (substr(a, 1, length(pc)) == pc) resto = substr(a, length(pc) + 1)	else if (substr(a, 1, length(pc)) == pc) resto = "status"
 FP	test-numih-sync.sh	sync	j = 0; while ((k = index(substr($0, j + 1), " pwd=")) > 0) j += k	j = index($0, " pwd=")
 TABELA
 )"
