@@ -13,6 +13,7 @@ referência, o mapa de módulos e o plano de como as regras chegarão aos agente
 | `PILOTO-agents.md` | O que o piloto «conexão de MCP de um agente do módulo agents» toca. |
 | `FASE2-REGRAS.md` | Plano de como as regras do `cursor` chegarão aos agentes do Unii. |
 | `test-numih-sync.sh`, `NumihMap.test.ts` | Testes (remotos locais e fixtures; não usam a rede nem `~/.unii/numih`). |
+| `mutacoes.sh` | Aplica cada mutação conhecida numa cópia temporária e confere que os testes a pegam. |
 
 ## Cópias de referência (`~/.unii/numih`)
 
@@ -50,9 +51,12 @@ para com erro e não toca nela. Se a busca falhar (rede, remoto inacessível),
 já tinha sido feito: no `check`, nada; no `sync`, só a configuração local de
 proteção e os ganchos, reaplicados antes da busca (HEAD e arquivos intactos).
 
-Recusa, sem criar nada, `NUMIH_HOME` relativo, igual ao `HOME` ou acima dele,
-ou dentro de `~/repository` (com links simbólicos resolvidos: se
-`~/repository` for link para outro diretório, o alvo também é recusado).
+Recusa, sem criar nada, `NUMIH_HOME` relativo, a raiz em qualquer grafia (`/`,
+`//`, `/.`, `/..`), igual ao `HOME` ou acima dele, ou dentro de `~/repository`
+(com links simbólicos resolvidos: se `~/repository` for link para outro
+diretório, o alvo também é recusado). `NUMIH_HOME` que exista e não seja
+diretório, e `.lock` que não seja arquivo comum (diretório, fifo), também são
+recusados com mensagem própria e saída 1.
 
 Nada é escrito nem buscado fora de `NUMIH_HOME`. Antes de qualquer busca, em
 `sync`, `check` e `map`, cada cópia passa por uma guarda: a cópia, o diretório
@@ -69,7 +73,11 @@ um `bin` que seja link simbólico, e `map` recusa `modulos.json` ou
 Clone e busca nunca pedem senha (`GIT_TERMINAL_PROMPT=0`, `GIT_ASKPASS=false`;
 sem `GIT_SSH_COMMAND`, `GIT_SSH` ou `core.sshCommand` do usuário, o ssh roda
 com `BatchMode=yes`) e têm prazo: `NUMIH_FETCH_TIMEOUT` segundos (padrão 300).
-Estourado o prazo, o git é interrompido, a mensagem diz isso e a saída é 1.
+Estourado o prazo, o git é interrompido (TERM e, 10 s depois, KILL), a
+mensagem diz isso e a saída é 1. Se o próprio `numih-sync` morrer no meio
+(inclusive por `kill -9`), o `setpriv --pdeathsig` faz o `timeout` derrubar o
+git e os filhos dele; sem o `setpriv` (util-linux), a busca pode seguir órfã
+até o prazo.
 Todo git roda com a trava (fd 9) fechada e com `gc.autoDetach=false`, então
 nenhum processo deixado em segundo plano herda a trava.
 
@@ -79,6 +87,10 @@ A busca não usa `--prune`: com um único refspec explícito
 `merge --ff-only` mesmo depois de conferir que o HEAD é ancestral da
 `origin/main`: é uma segunda barreira (o teste a exercita fingindo que a
 primeira passou) e garante que nunca fica merge pela metade.
+
+`mod <nome>` recusa nome que comece com ponto ou termine em `.git` (o sufixo é
+da URL, não do nome); o `numih-map` também descarta URL cujo nome seja `.git`
+ou termine em `.git` depois de tirado o sufixo.
 
 `numih-sync help` (ou sem argumentos) mostra a ajuda sem guarda, trava nem
 escrita; comando desconhecido sai com 2.
@@ -94,9 +106,16 @@ Duas execuções simultâneas se serializam por uma trava (`flock` em
 ## Testes
 
 ```bash
-bash numih/test-numih-sync.sh   # 173 verificações com remotos git locais num tmp próprio
-bun test numih/                 # 9 testes do gerador do mapa (repositório git, fixtures, gh falso)
+bash numih/test-numih-sync.sh   # 284 verificações com remotos git locais num tmp próprio
+bun test numih/                 # 11 testes do gerador do mapa (repositório git, fixtures, gh falso)
+bash numih/mutacoes.sh          # 19 mutações (IDs A1, S22…S44, B2…B6); todas precisam morrer
 ```
+
+Algumas verificações são estruturais, porque o comportamento não muda sem a
+opção: o clone ignora `submodule.recurse` e a busca só recursaria em submódulo
+inicializado (que a cópia do workspace recusa), então o teste confere
+`--no-recurse-submodules` na linha de comando do git e `submodule.recurse` /
+`fetch.recurseSubmodules` = `false` no config local.
 
 Os testes usam `HOME`, `NUMIH_HOME`, config global do git e `GH_CONFIG_DIR`
 temporários. Isso **não** isola as credenciais do `gh`: ele pode achá-las no
@@ -107,7 +126,8 @@ chama o `gh` real nem a rede: o `numih-sync` é testado com remotos locais, e o
 O teste do `numih-sync` também usa um `git` falso no `PATH` (que registra o
 ambiente de cada chamada e se a trava fd 9 estava aberta) e um remoto que
 pendura (transporte `ext::` com `sleep`), para provar o prazo da busca e do
-clone. Cada gancho de recusa é exercitado pela sua operação (commit, merge,
+clone, o KILL de uma busca que ignora TERM e que um `kill -9` no `numih-sync`
+não deixa a busca órfã. Cada gancho de recusa é exercitado pela sua operação (commit, merge,
 rebase, `git am` e push com URL explícita).
 
 O cabeçalho do `MODULOS.md` conta os gitlinks reais da `main` do workspace
@@ -118,7 +138,8 @@ owner/nome inseguros) ficam fora do mapa e são listadas em
 `total_secoes_gitmodules = módulos no mapa + secoes_descartadas` (hoje 82 = 82 + 0).
 Caminhos, nomes de porta e dependências vindos do `.gitmodules` e do catálogo
 entram no Markdown escapados (`|`, crase, `[`, `<`, `\` e quebras de linha),
-para não quebrar a tabela nem abrir código, link ou HTML.
+para não quebrar a tabela nem abrir código, link ou HTML; vale também para
+`be_local` e `idx` no aviso de divergência do `module.dev.yaml`.
 
 O instantâneo `MODULOS.md`/`modulos.json` desta pasta foi regenerado sem rede, a
 partir do `modulos.json` anterior (só ganhou `secoes_descartadas` e a linha
