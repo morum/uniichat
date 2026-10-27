@@ -30,7 +30,11 @@
 # NUMIH_LOCK_WAIT (segundos de espera pela trava; padrão 120);
 # NUMIH_FETCH_TIMEOUT (segundos máximos de cada clone ou busca, inteiro maior
 # que zero; padrão 300). Um clone que falha (por prazo, KILL ou erro) tem a
-# pasta que ele criou apagada.
+# pasta que ele criou apagada. Se o próprio numih-sync morrer no meio do clone
+# (TERM, HUP ou KILL no PID dele), o git é interrompido e limpa o que baixou,
+# mas a pasta fica, vazia: a próxima execução a trata como ausente (remove a
+# pasta vazia e clona de novo; o check e o map pedem um sync). Com INT (Ctrl-C)
+# o script não morre: o clone conta como falho e a pasta é apagada na hora.
 # Clone e busca nunca pedem senha: GIT_TERMINAL_PROMPT=0, GIT_ASKPASS=false e,
 # sem ssh configurado pelo usuário, ssh com BatchMode=yes.
 
@@ -168,6 +172,17 @@ dentro_de_casa() {
   case "$r" in "$NUMIH_HOME"/?*) return 0 ;; *) return 1 ;; esac
 }
 
+# 0 se o caminho é um diretório vazio de verdade (não link simbólico), dentro
+# de $NUMIH_HOME: é o que sobra quando o numih-sync morre no meio de um clone
+# (o git limpa o que baixou, mas a pasta foi criada pelo script). Um arquivo,
+# fifo etc. nunca é «vazio» (o ls -A lista o próprio nome).
+pasta_vazia() {
+  [ ! -L "$1" ] || return 1
+  dentro_de_casa "$1" || return 1
+  local c; c="$(ls -A -- "$1" 2>/dev/null)" || return 1
+  [ -z "$c" ]
+}
+
 # Trava: duas execuções simultâneas não mexem nas mesmas cópias; a segunda
 # espera até $LOCK_WAIT s e, se a trava não sair, desiste com erro. Um .lock
 # que seja link simbólico é recusado; o >> nunca trunca o arquivo (nem um
@@ -190,6 +205,9 @@ guarda_copia() {
     erro "$nome: $dir resolve para fora de $NUMIH_HOME ($(realpath -m -- "$dir")); não toco nele"; return 1
   fi
   if [ ! -e "$dir" ]; then erro "$nome: ausente em $dir (rode: numih-sync sync)"; return 1; fi
+  if pasta_vazia "$dir"; then
+    erro "$nome: $dir é uma pasta vazia (sobra de um clone interrompido); rode: numih-sync sync"; return 1
+  fi
   local gitdir comum
   gitdir="$(g "$dir" rev-parse --absolute-git-dir 2>/dev/null)" || { erro "$dir existe mas não é repositório git"; return 1; }
   comum="$(g "$dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 1
@@ -245,16 +263,18 @@ exit 1'
 # Apaga a pasta de um clone que falhou, só se ela ainda for a que o clonar
 # criou (mesmo dispositivo e inode, diretório de verdade, dentro de casa).
 # Uma pasta trocada durante o clone (ou que já existia) nunca é apagada.
+# Devolve 0 se a pasta não existe mais (apagada ou já ausente) e 1 se ela
+# ficou (recusada ou rm falhou); o clonar só usa isso para avisar o que ficou.
 apagar_parcial() {
   local nome="$1" dir="$2" id="$3"
   if [ ! -e "$dir" ] && [ ! -L "$dir" ]; then return 0; fi
   if [ -L "$dir" ] || [ ! -d "$dir" ] || [ "$(stat -c '%d:%i' -- "$dir" 2>/dev/null)" != "$id" ] || ! dentro_de_casa "$dir"; then
-    erro "$nome: $dir não é mais a pasta criada por este clone; não a apago"; return 0
+    erro "$nome: $dir não é mais a pasta criada por este clone; não a apago"; return 1
   fi
   if rm -rf -- "$dir"; then
     info "$nome: pasta parcial do clone removida ($dir)"
   else
-    erro "$nome: não consegui apagar a pasta parcial do clone ($dir); apague-a antes de rodar de novo"
+    erro "$nome: não consegui apagar a pasta parcial do clone ($dir); apague-a antes de rodar de novo"; return 1
   fi
 }
 
@@ -275,7 +295,9 @@ clonar() {
   if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then
     erro "$nome: o clone passou de $FETCH_TIMEOUT s (NUMIH_FETCH_TIMEOUT) e foi interrompido"
   fi
-  apagar_parcial "$nome" "$dir" "$id"
+  # O código do clone (não o da limpeza) é o que o chamador recebe; as
+  # mensagens do apagar_parcial já dizem se a pasta ficou.
+  apagar_parcial "$nome" "$dir" "$id" || :
   return "$rc"
 }
 
@@ -349,6 +371,17 @@ ancestral() {
 
 sincronizar_um() {
   local nome="$1" dir="$2"
+  # Pasta vazia deixada por um clone interrompido (o numih-sync morreu por
+  # TERM, HUP ou KILL no meio): conta como ausente. Sem trap de propósito: o
+  # bash só roda um trap depois que o comando em primeiro plano termina (um
+  # TERM esperaria o clone acabar) e o KILL nunca passa por trap. O rmdir só
+  # remove diretório vazio, então nada com conteúdo é apagado aqui.
+  if pasta_vazia "$dir"; then
+    if ! rmdir -- "$dir" 2>/dev/null; then
+      erro "$nome: não consegui remover a pasta vazia $dir (sobra de um clone interrompido); apague-a e rode de novo"; return 1
+    fi
+    info "$nome: pasta vazia de um clone interrompido removida ($dir); clonando de novo"
+  fi
   if [ ! -e "$dir" ] && [ ! -L "$dir" ]; then
     if ! dentro_de_casa "$dir"; then
       erro "$nome: $dir resolve para fora de $NUMIH_HOME ($(realpath -m -- "$dir")); não clono nele"; return 1
