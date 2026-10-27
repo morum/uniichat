@@ -5,7 +5,9 @@
 // Code's systemPrompt (ClaudeSub.options) and the Cursor CLI's rule
 // .cursor/rules/unii.mdc (Cursor.room) both hold Ask.system. Read at
 // each call from the reference copy of Numih/cursor that numih-sync keeps
-// (config numih_home, ~/.unii/numih by default; numih/README.md): the
+// (config numih_home, else $NUMIH_HOME, else ~/.unii/numih:
+// Machine.numih_home, the dir the cursor's skills are read from too;
+// numih/README.md): the
 // core rules whole, the text the team gets (dist/managed/CLAUDE.md,
 // decided with the user in P122), and an index of the rules by path
 // (dist/claude-plugin/rules-global), each read whole by the agent before
@@ -16,11 +18,14 @@
 // or not, as the device's (Machine.skills).
 
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import * as config from "./Config.ts";
+import { Machine } from "./Machine.ts";
 
-// where the pack is read and its most bytes; a test points them elsewhere
-export const NUMIH = { home: config.NUMIH_HOME, max: config.NUMIH_RULES_MAX };
+// where the pack is read (the same dir a device's skills are read from:
+// Machine.numih_home) and its most bytes; a test points them elsewhere
+export const NUMIH = { home: Machine.numih_home(os.homedir(), process.env, config.NUMIH_SET), max: config.NUMIH_RULES_MAX };
 
 // under numih_home: the core rules, the rules by path (the core's own
 // file among them is left out: it is CORE, whole), the copy's git dir
@@ -32,9 +37,10 @@ const GIT              = "cursor/.git";
 // the rule by path read for every test, whatever file it matches
 const TESTS_RULE = "25-isolamento-de-testes";
 
-// what a Numih subagent's system prompt gets: its text, its size in bytes
-// (UTF-8), whether it is the rules (else a notice), the cursor's commit
-// ("" unknown), and why not, if not
+// what a Numih subagent's system prompt gets: its text (as injected, no
+// blank at its ends), its size in bytes (UTF-8, of that text), whether
+// it is the rules (else a notice), the cursor's commit ("" unknown), and
+// why not, if not
 export type Pack = { text: string; bytes: number; injected: boolean; commit: string; why: string };
 
 export namespace Numih {
@@ -52,7 +58,9 @@ export namespace Numih {
       return Numih.missing(home, core + " está vazio");
     }
     const commit = Numih.commit(home);
-    const rules = Numih.head(home, commit) + "\n\n" + Numih.index(home) + "\n\n## Núcleo (sempre ativo)\n\n" + text.trim() + "\n";
+    // as injected (Tools.ask): no blank around it, so `bytes` is the
+    // injected text's
+    const rules = Numih.head(home, commit) + "\n\n" + Numih.index(home) + "\n\n## Núcleo (sempre ativo)\n\n" + text.trim();
     const bytes = Buffer.byteLength(rules, "utf8");
     if (bytes > max) {
       return Numih.notice(home, commit, "o pacote tem " + bytes + " bytes e passa do teto de " + max + " bytes (configuração numih_rules_max)", true);
@@ -72,7 +80,7 @@ export namespace Numih {
     const todo = there
       ? "Antes de alterar qualquer repositório da Numih, leia por inteiro " + core + " (o núcleo das regras) e, antes de editar cada arquivo, a regra por caminho que case com ele, em " + rules + "."
       : "Sem elas, não faça commit, push nem PR em repositório da Numih: relate ao Unii que faltam as regras (ele as obtém com `numih-sync sync`, que mantém a cópia em " + home + ").";
-    const text = "# Regras da Numih\n\nAs regras da Numih não foram injetadas neste prompt: " + why + ". " + todo + "\n";
+    const text = "# Regras da Numih\n\nAs regras da Numih não foram injetadas neste prompt: " + why + ". " + todo;
     return { text, bytes: Buffer.byteLength(text, "utf8"), injected: false, commit, why };
   }
 

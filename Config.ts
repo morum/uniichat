@@ -157,10 +157,12 @@ export const CURSOR_IDLE = ((n) => (Number.isFinite(n) && n > 10 ? n : 600))(Num
 
 // the Numih rules a subagent of a Numih task gets (Numih.ts): where
 // numih-sync keeps the reference copies (numih/README.md), config
-// numih_home (~/.unii/numih by default); the most bytes they may take
-// of its system prompt, config numih_rules_max (131072 by default; not a
-// whole number above 0: the default). Read at the start
-export const NUMIH_HOME      = config_path(config_get("numih_home", "~/.unii/numih"));
+// numih_home as written ("" unset: Machine.numih_home reads it, for the
+// rules here and for a device's skills, which gets it in its jobs); the
+// most bytes they may take of its system prompt, config numih_rules_max
+// (131072 by default; not a whole number above 0: the default). Read at
+// the start
+export const NUMIH_SET       = config_get("numih_home", "");
 export const NUMIH_RULES_MAX = numih_max(config_get("numih_rules_max", "131072"));
 
 export function numih_max(x: string): number {

@@ -1,19 +1,22 @@
-# Fase 2 — como as regras do `cursor` chegarão aos agentes do Unii
+# Fase 2: como as regras do `cursor` chegam aos agentes do Unii
 
 ## Estado: implementado na branch `feat/numih-fase2`
 
 Decisões do usuário (P122): núcleo **inteiro** no prompt; skills do `cursor`
 em **todas** as tarefas; piloto «Outra» (ver `PILOTO-mcp-agentes.md`).
+A tabela abaixo descreve o estado atual. As seções depois de «Plano
+original» registram o plano anterior à implementação e estão superadas onde
+divergem desta tabela.
 
 | Item do plano | Como ficou |
 |---|---|
 | Tarefa Numih | O Unii marca no `spawn`: `numih: true`. A marca fica na nota do agente («subagent … with the Numih rules, labeled …»), então sobrevive a um reinício. |
-| Núcleo no prompt | `Numih.ts` lê, a cada chamada, `cursor/dist/managed/CLAUDE.md` da cópia de referência (`numih_home`, padrão `~/.unii/numih`) e o põe **inteiro** no prompt do sistema, depois do texto do Unii e antes das instruções do usuário. Vale para qualquer fornecedor: o Claude Code recebe o texto como `systemPrompt`; o Cursor CLI, como a regra `alwaysApply` `.cursor/rules/unii.mdc`. |
+| Núcleo no prompt | `Numih.ts` lê, a cada chamada, `cursor/dist/managed/CLAUDE.md` da cópia de referência (`Machine.numih_home`: a configuração `numih_home`; sem ela, `$NUMIH_HOME` se for caminho absoluto; senão, `~/.unii/numih`) e o põe **inteiro** no prompt do sistema, depois do texto do Unii e antes das instruções do usuário. Vale para qualquer fornecedor: o Claude Code recebe o texto como `systemPrompt`; o Cursor CLI, como a regra `alwaysApply` `.cursor/rules/unii.mdc`. |
 | Índice das regras por caminho | Gerado na hora a partir de `cursor/dist/claude-plugin/rules-global` (25 regras; o `_numih-nucleo.md`, que repete o núcleo, fica fora): nome, título, padrões de caminho e arquivo. A instrução manda ler a regra inteira antes de criar ou editar arquivo que case com o padrão; a `25-isolamento-de-testes` vale para todo teste. |
 | Teto | `numih_rules_max` (padrão 131072 bytes). Acima dele o pacote **não** é cortado: nada é injetado e um aviso diz o tamanho, o teto e quais arquivos ler por inteiro. |
 | Pacote ausente | Aviso no lugar: as regras faltam, o agente não faz commit, push nem PR em repositório da Numih e relata ao Unii (que roda `numih-sync sync`). |
-| Log | Cada chamada registra «unii: regras da Numih para <agente>: N bytes injetados (cursor <commit>)», ou por que não. |
-| Skills | `Machine.skills` inclui `cursor/dist/claude-plugin/skills` (49 skills; `claude-mem-memory` fica fora, P118) em **todas** as tarefas, depois das do usuário e do projeto (nome repetido: vale o do usuário). Cinco delas têm cabeçalho que o YAML estrito recusa («Numih: sobe a stack…»); o cabeçalho recusado agora é lido linha a linha. |
+| Log | Cada chamada registra «unii: regras da Numih para <agente>: N bytes injetados (cursor <commit>)», ou por que não. N é o tamanho em bytes do texto exatamente como entra no prompt, sem espaço nem quebra de linha nas pontas. |
+| Skills | `Machine.skills` inclui `cursor/dist/claude-plugin/skills` (49 skills; `claude-mem-memory` fica fora, P118) em **todas** as tarefas, depois das do usuário e do projeto (nome repetido: vale o do usuário). Cinco delas têm cabeçalho que o YAML estrito recusa («Numih: sobe a stack…»); o cabeçalho recusado agora é lido linha a linha, com blocos dobrados (`>`) e literais (`|`) e continuação de valor simples; um valor que essa leitura não entende (aspas sem fechar, lista, mapa, âncora, alias, rótulo) deixa a skill de fora, como o YAML estrito deixava. As skills vêm do mesmo diretório que as regras: o servidor envia a configuração `numih_home` nos trabalhos `skills` e `skill` do dispositivo, e o dispositivo a lê pela mesma regra (`Machine.numih_home`). |
 
 Não feito nesta fase: o script `numih-regras` (o pacote é montado na hora,
 sem arquivo intermediário); as regras «promovidas» além do núcleo
@@ -22,9 +25,10 @@ sem arquivo intermediário); as regras «promovidas» além do núcleo
 materializado no worktree da tarefa (o Cursor CLI já recebe tudo pela
 `unii.mdc`); o teste ponta a ponta com um agente real (fase 5 ou piloto).
 
-## Plano original
+## Plano original (superado)
 
-Plano, sem código nesta fase. Fonte: `~/.unii/numih/cursor` na `main`
+Registro do plano anterior à implementação. Onde ele diverge da tabela de
+estado acima, vale a tabela. Plano, sem código nesta fase. Fonte: `~/.unii/numih/cursor` na `main`
 (`76183bd`). Decisões do usuário já tomadas (P118): a regra
 `10-claude-mem-memory` não vale para o Unii; E2E local no DevTools em Docker
 (fase 5); o Unii abre o PR, o usuário revisa e, depois da aprovação dele, o Unii
@@ -53,7 +57,7 @@ plugin, em vez de inventar outra:
 |---|---|---|
 | `nucleo` (sempre ativo) | `10-branch-pr-conventions`, `10-naming-conventions`, `20-arquitetura-geral`, `20-ports-catalog`, `25-limites-agente`, `25-validacao-vencimento` | **Texto integral no prompt do sistema** de toda tarefa Numih, lido de `dist/managed/CLAUDE.md` (gerado, ~71 KB, ~18 mil tokens; o cache de prompt reduz o custo nas chamadas seguintes). |
 | `rule` (por caminho) | 25 regras com `paths:`/`globs` (frontend, GraphQL, goose, multi-tenancy, RLS, testes…) | **Índice no prompt** (nome, descrição, padrões de caminho e o arquivo em `~/.unii/numih/cursor/dist/claude-plugin/rules-global/`). Instrução: antes de criar ou editar arquivo que case com o padrão, ler a regra inteira. O verificador confere. |
-| `skill` (sob demanda) | `30-postgres-*`, `30-date-system`, `30-usar-go-doc…`, `50-rollout-process` e as 41 skills de `catalog/skills` | **Skills do Unii** (`Machine.skills`), visíveis só em tarefas Numih. |
+| `skill` (sob demanda) | `30-postgres-*`, `30-date-system`, `30-usar-go-doc…`, `50-rollout-process` e as 41 skills de `catalog/skills` | **Skills do Unii** (`Machine.skills`). Superado: estão em todas as tarefas (P122), lidas de `dist/claude-plugin/skills`. |
 | `dissolve` | `00-index`, `00-mdc-standards`, `00-skill-standards`, `30-postgres` | Fora. Valem só para quem edita o próprio repositório `cursor`. |
 
 ## O que se aplica, o que se ignora e por quê
@@ -74,7 +78,7 @@ plugin, em vez de inventar outra:
 - **Portas** (`20-ports-catalog`, regra 7): o agente usa a banda
   `9000+idx`/`10000+idx` e o supergraph `4100`; nunca a banda humana
   (`8100+idx`, `11000+idx`, `4000`). Base do E2E da fase 5.
-- **Migrations**: além de `20-goose-migrations`, a instrução da organização —
+- **Migrations**: além de `20-goose-migrations`, a instrução da organização:
   migration que já está na `main` nunca se edita (cria-se outra); a que ainda não
   foi mesclada se edita em vez de corrigir com outra.
 - **Issues só no Linear** (README do workspace, skill `criar-issue-linear`).
@@ -100,25 +104,31 @@ plugin, em vez de inventar outra:
 | Gancho `numih-guard` | Sem gancho no Unii, o **gate de CI** roda antes do push: `node ~/.unii/numih/cursor/scripts/ci/numih-guard-scan.mjs` no worktree do submódulo (checagens `block`: migration imutável, etc.). Falhou, não há push. |
 | Fornecedor Cursor (P115) | Além do prompt, `adapters/cursor-cli/sync.mjs sync` materializa `.cursor/rules` no worktree da tarefa (fora do git via `.git/info/exclude`), porque o `cursor-agent` lê regras de projeto. |
 
-## Entregas da fase 2
+## Entregas previstas no plano (superadas)
+
+O que o plano previa, com o que foi feito em cada item:
 
 1. `numih-regras` (script, sob `numih/bin`): gera, a partir de
    `~/.unii/numih/cursor`, o `~/.unii/numih/regras/prompt.md` (núcleo +
    promovidas + índice das regras por caminho + políticas do usuário), com o
-   commit do `cursor` no cabeçalho. Determinístico e testado.
+   commit do `cursor` no cabeçalho. Determinístico e testado. Não feito: o
+   pacote é montado na hora por `Numih.ts`, sem arquivo intermediário.
 2. Servidor: tarefa marcada como Numih (rótulo ou `ref`) recebe esse texto no
    prompt do sistema, para qualquer fornecedor. É código do servidor: PR próprio,
-   com verificador não autor.
+   com verificador não autor. Feito: a marca é `numih: true` no `spawn`.
 3. Skills: `Machine.skills` passa a incluir `~/.unii/numih/cursor/catalog/skills`
-   só em tarefas Numih.
+   só em tarefas Numih. Feito de outro modo: `dist/claude-plugin/skills`, em
+   todas as tarefas (P122).
 4. Teste ponta a ponta: um agente de teste numa tarefa Numih responde, sem ler
    arquivo nenhum, qual o nome de branch para a NUM-37 e qual porta usar para o
-   `agents`; e lê a regra certa antes de editar um `*_test.go`.
+   `agents`; e lê a regra certa antes de editar um `*_test.go`. Não feito:
+   fica para a fase 5 ou para o piloto.
 
-## Decisões a levar ao usuário
+## Decisões levadas ao usuário (resolvidas na P122)
 
 1. Injetar o núcleo **integral** (~18 mil tokens por tarefa Numih) ou um resumo
    com leitura obrigatória do texto completo? Recomendação: integral, porque é o
    mesmo texto que a equipe recebe e o cache de prompt reduz o custo; resumo é
-   onde a regra se perde.
+   onde a regra se perde. Resposta do usuário: integral.
 2. Skills da Numih visíveis só em tarefas Numih (recomendado) ou em todas.
+   Resposta do usuário: em todas.

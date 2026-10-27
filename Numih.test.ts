@@ -77,8 +77,10 @@ test("pack: the core whole, after a head and the index of the rules by path; its
   expect(pack.commit).toBe("76183bd");
   expect(pack.text.startsWith("# Regras da Numih\n\nEsta tarefa é da Numih:")).toBe(true);
   expect(pack.text).toContain("Numih/cursor (commit 76183bd), na cópia de referência em " + path.join(home, "cursor"));
-  // the core, whole and last, trimmed
-  expect(pack.text.endsWith("## Núcleo (sempre ativo)\n\n" + NUCLEO.trim() + "\n")).toBe(true);
+  // the core, whole and last, trimmed; the text as injected, no blank at
+  // its ends, so its bytes are the injected text's
+  expect(pack.text.endsWith("## Núcleo (sempre ativo)\n\n" + NUCLEO.trim())).toBe(true);
+  expect(pack.text).toBe(pack.text.trim());
   expect(pack.bytes).toBe(Buffer.byteLength(pack.text, "utf8"));
   expect(pack.bytes).toBeGreaterThan(pack.text.length); // accents: more bytes than code units
   // the index: each rule with its title, its patterns and its file; the
@@ -115,6 +117,8 @@ test("pack: missing, unreadable or empty core: a notice that forbids changing a 
   expect(none.text).toContain("Sem elas, não faça commit, push nem PR em repositório da Numih");
   expect(none.text).toContain("`numih-sync sync`");
   expect(none.bytes).toBe(Buffer.byteLength(none.text, "utf8"));
+  expect(none.text).toBe(none.text.trim()); // as injected
+  expect(Numih.pack(copy("teto-aviso"), 10).text).toBe(Numih.pack(copy("teto-aviso"), 10).text.trim());
   const empty = Numih.pack(copy("vazio", { core: " \n\n" }), 1_000_000);
   expect(empty.injected).toBe(false);
   expect(empty.why).toEndWith(" está vazio");
@@ -148,6 +152,22 @@ test("commit: from the ref's file, else packed-refs, a detached HEAD; unknown: '
   fs.writeFileSync(path.join(up, "x"), "1111111111111111111111111111111111111111\n"); // what that ref would reach
   expect(Numih.commit(up)).toBe("");
   expect(Numih.commit(path.join(TMP, "nada"))).toBe("");
+  // a commit's hash: 40 (SHA-1) to 64 (SHA-256) hex digits, by ref or detached
+  const hex = (n: number) => "a".repeat(n);
+  for (const n of [40, 64]) {
+    expect(Numih.commit(copy("ref-" + n, { sha: hex(n) }))).toBe("aaaaaaa");
+    expect(Numih.commit(copy("ref-p-" + n, { sha: hex(n), packed: true }))).toBe("aaaaaaa");
+    const d = copy("solto-" + n);
+    fs.writeFileSync(path.join(d, "cursor/.git/HEAD"), hex(n) + "\n");
+    expect(Numih.commit(d)).toBe("aaaaaaa");
+  }
+  for (const n of [39, 65]) {
+    expect(Numih.commit(copy("ref-" + n, { sha: hex(n) }))).toBe("");
+    expect(Numih.commit(copy("ref-p-" + n, { sha: hex(n), packed: true }))).toBe("");
+    const d = copy("solto-" + n);
+    fs.writeFileSync(path.join(d, "cursor/.git/HEAD"), hex(n) + "\n");
+    expect(Numih.commit(d)).toBe("");
+  }
 });
 
 test("rule_head: the title after the frontmatter, its paths: or globs: list, quoted or not", () => {
@@ -156,6 +176,10 @@ test("rule_head: the title after the frontmatter, its paths: or globs: list, quo
   expect(Numih.rule_head("# Só título\n")).toEqual({ title: "Só título", paths: [] });
   // the frontmatter's own "# " is not the title
   expect(Numih.rule_head("---\n# comentário\n---\n# Título\n").title).toBe("Título");
+  // a title is "# " and a word: not "#tag", not "## Seção"
+  expect(Numih.rule_head("#tag\n## Seção\n#\n# Título\n").title).toBe("Título");
+  // no frontmatter: a "---" further down opens none, so no paths
+  expect(Numih.rule_head("# Título\n---\npaths:\n  - x\n---\n")).toEqual({ title: "Título", paths: [] });
 });
 
 test("log_line: the bytes injected and the commit; or why not", () => {
@@ -171,8 +195,32 @@ test("numih_max: a whole number above 0, else 131072; config's defaults", () => 
     expect(config.numih_max(bad)).toBe(131072);
   }
   expect(config.NUMIH_RULES_MAX).toBe(131072);
-  expect(config.NUMIH_HOME).toBe(process.env.UNII_NUMIH_HOME!);
-  expect(config.NUMIH_HOME.startsWith("/tmp/")).toBe(true);
+  expect(config.NUMIH_SET).toBe(process.env.UNII_NUMIH_HOME!);
+  expect(NUMIH.home).toBe(process.env.UNII_NUMIH_HOME!);
+  expect(NUMIH.home.startsWith("/tmp/")).toBe(true);
+});
+
+test("head: the rules' source, and the user's instructions beside them: if one contradicts the other, stop and report", () => {
+  const head = Numih.head("/casa", "abc1234");
+  expect(head).toContain("Numih/cursor (commit abc1234), na cópia de referência em /casa/cursor");
+  expect(head).toContain("siga as duas e, se uma contrariar a outra, pare e relate ao Unii.");
+});
+
+test("index: sorted by name whatever the dir's order; the tests rule named; a backtick in a pattern shown as an apostrophe", () => {
+  const home = path.join(TMP, "ordem");
+  const dir = path.join(home, BY_PATH);
+  fs.mkdirSync(dir, { recursive: true });
+  // made neither in order nor in reverse order
+  for (const name of ["20-b", "30-c", "10-a"]) {
+    fs.writeFileSync(path.join(dir, name + ".md"), "---\npaths:\n  - \"" + name + "/**\"\n---\n# " + name + "\n");
+  }
+  fs.writeFileSync(path.join(dir, "40-crase.md"), "---\npaths:\n  - \"a`b/**\"\n---\n# Crase\n");
+  const index = Numih.index(home);
+  expect(index).toContain("A 25-isolamento-de-testes vale para todo teste que você criar ou rodar.");
+  const names = index.split("\n").filter((l) => l.startsWith("- ")).map((l) => l.slice(2, 6));
+  expect(names).toEqual(["10-a", "20-b", "30-c", "40-c"]);
+  expect(index).toContain("- 40-crase (Crase): `a'b/**`. Arquivo: ");
+  expect(index).not.toContain("a`b");
 });
 
 // Agents
@@ -214,6 +262,13 @@ test("spawn numih: the rules in the system prompt, after SUB, before the user's 
     expect(ask.system.indexOf("# Regras da Numih")).toBeLessThan(ask.system.indexOf("Unii's own prompt follows"));
     expect(ask.system.endsWith("\n\nPROMPT-DO-USUÁRIO")).toBe(true);
     expect(ask.agent).toBe(true);
+    // the bytes logged are those of the text injected, as it stands in
+    // the system prompt between SUB and the user's prompt
+    const at = ask.system.indexOf("# Regras da Numih");
+    const injected = ask.system.slice(at, ask.system.indexOf("\n\nUnii's own prompt follows"));
+    expect(injected).toBe(pack.text);
+    expect(Buffer.byteLength(injected, "utf8")).toBe(pack.bytes);
+    expect(ask.system.slice(0, at).endsWith("\n\n")).toBe(true);
     const lines = log.mock.calls.map((c) => c.map(String).join(" "));
     expect(lines).toContain("unii: regras da Numih para " + name + ": " + pack.bytes + " bytes injetados (cursor 76183bd)");
     // its note says it, before the label
@@ -235,8 +290,9 @@ test("spawn without numih, or numih false: no rules, no log; numih not a boolean
       expect(Memory.agent(chat.mem, name)![0].text).toBe("subagent, labeled " + args.labels[0]);
     }
     expect(log.mock.calls.some((c) => String(c[0]).includes("regras da Numih"))).toBe(false);
-    const bad = await call("spawn", { tasks: ["x"], numih: "sim" });
-    expect(bad).toEqual({ text: "numih is true or false.", fail: true });
+    for (const numih of ["sim", "true", 1, null]) {
+      expect(await call("spawn", { tasks: ["x"], numih })).toEqual({ text: "numih is true or false.", fail: true });
+    }
   } finally {
     log.mockRestore();
   }
@@ -251,6 +307,13 @@ test("spawn numih with no pack: the notice in its place, the log says why", asyn
     expect(ask.system).toContain("As regras da Numih não foram injetadas neste prompt: " + path.join(TMP, "nada", CORE) + " não existe.");
     expect(ask.system).toContain("não faça commit, push nem PR");
     const notice = Numih.pack(NUMIH.home, NUMIH.max);
+    // with no user's prompt the notice ends the system prompt: its bytes,
+    // as logged, are those of what was injected
+    fs.writeFileSync(PROMPTS.prompt.file, "");
+    const bare = Tools.ask(tools, Tools.agent(tools, name)!).system;
+    expect(bare.endsWith("\n\n" + notice.text)).toBe(true);
+    expect(Buffer.byteLength(bare.slice(bare.indexOf("# Regras da Numih")), "utf8")).toBe(notice.bytes);
+    fs.writeFileSync(PROMPTS.prompt.file, "PROMPT-DO-USUÁRIO");
     expect(log.mock.calls.map((c) => String(c[0]))).toContain("unii: regras da Numih para " + name + ": não injetadas (" + notice.why + "); aviso de " + notice.bytes + " bytes no lugar");
     expect(Memory.agent(chat.mem, name)![0].text).toBe("subagent at effort high with the Numih rules, labeled num-38-impl");
   } finally {
@@ -396,6 +459,99 @@ test("skills: a frontmatter strict YAML refuses (\": \" in a plain value) read l
     ["dupla", "primeira: sim"],
     ["estrita", "em duas linhas"],
   ]);
+});
+
+test("skills: in a frontmatter strict YAML refuses, a folded (>) or literal (|) block and a plain value's next lines are read whole; what can't be read leaves the skill out", () => {
+  const root = path.join(TMP, "blocos");
+  const put = (dir: string, head: string) => {
+    fs.mkdirSync(path.join(root, dir), { recursive: true });
+    // the last line makes strict YAML refuse it all
+    fs.writeFileSync(path.join(root, dir, "SKILL.md"), "---\nname: " + dir + "\n" + head + "\nx: [quebrado\n---\n# corpo\n");
+  };
+  put("dobrada", "description: >\n  Primeira linha\n  segunda: linha\n\n  outro parágrafo");
+  put("dobrada-menos", "description: >- # comentário\n    com indicador\n    e recuo maior");
+  put("literal", "description: |\n  linha um\n    recuada\n  linha três");
+  put("continua", "description: começa aqui: e\n  continua aqui\n\n  e aqui");
+  put("aspas-longas", "description: \"abre aqui\n  e fecha: aqui\"");
+  put("bloco-vazio", "description: >");
+  put("bloco-branco", "description: |\n\n");
+  put("lista", "description: [a, b");
+  put("mapa", "description: {a: b}");
+  put("ancora", "description: &a valor: x");
+  put("alias", "description: *a");
+  put("rotulo", "description: !tag valor: x");
+  put("aspa-aberta", "description: \"sem fim");
+  const got = Machine.skills(path.join(TMP, "ninguem"), path.join(TMP, "nenhum"), root);
+  expect(got.map((s) => [s.name, s.description])).toEqual([
+    ["aspas-longas", "abre aqui e fecha: aqui"],
+    ["continua", "começa aqui: e continua aqui e aqui"],
+    ["dobrada", "Primeira linha segunda: linha\noutro parágrafo"],
+    ["dobrada-menos", "com indicador e recuo maior"],
+    ["literal", "linha um\n  recuada\nlinha três"],
+  ]);
+});
+
+test("skills: a description is cut at 1024 characters", () => {
+  const root = path.join(TMP, "longa");
+  const long = "a".repeat(1023) + "bc" + "d".repeat(100);
+  skill(root, "longa", "longa", long);
+  const [got] = Machine.skills(path.join(TMP, "ninguem"), path.join(TMP, "nenhum"), root);
+  expect(got.description).toBe("a".repeat(1023) + "b");
+  expect(got.description.length).toBe(1024);
+});
+
+test("numih_home: config numih_home first (\"~/\" is the home), then $NUMIH_HOME if absolute, then ~/.unii/numih; the same for the rules and the skills", () => {
+  const env = { NUMIH_HOME: "/var/numih" };
+  expect(Machine.numih_home("/h", env, "/srv/numih/")).toBe("/srv/numih");
+  expect(Machine.numih_home("/h", env, " ~/copias ")).toBe("/h/copias");
+  expect(Machine.numih_home("/h", env, "")).toBe("/var/numih");
+  expect(Machine.numih_home("/h", env, "relativo")).toBe("/var/numih");
+  expect(Machine.numih_home("/h", env, undefined)).toBe("/var/numih");
+  expect(Machine.numih_home("/h", env, 7)).toBe("/var/numih");
+  expect(Machine.numih_home("/h", {}, "")).toBe("/h/.unii/numih");
+  expect(Machine.numih_home("/h", { NUMIH_HOME: "rel" }, "")).toBe("/h/.unii/numih");
+  expect(Machine.numih_home("/h", {}, "/")).toBe("/");
+  expect(Machine.numih_skills("/h", env, "~/copias")).toBe("/h/copias/cursor/dist/claude-plugin/skills");
+});
+
+test("the device reads the skills where the server's numih_home says: the skills and skill jobs carry it", async () => {
+  const home = path.join(TMP, "do-servidor");
+  const numih = Machine.numih_skills("/ninguem", {}, home);
+  skill(numih, "criar-issue-linear", "criar-issue-linear", "Cria issue no Linear");
+  const work = path.join(TMP, "trabalho");
+  const signal = new AbortController().signal;
+  const listed = await Machine.run({ name: "skills", input: { numih: home }, cwd: "main" }, work, signal);
+  expect(JSON.parse(listed.text).map((s: any) => s.name)).toContain("criar-issue-linear");
+  const one = await Machine.run({ name: "skill", input: { name: "criar-issue-linear", numih: home }, cwd: "main" }, work, signal);
+  expect(one.fail).toBe(false);
+  expect(one.text).toContain("Skill criar-issue-linear, in " + path.join(numih, "criar-issue-linear"));
+  // without it (a server from before), the device's own rule: not there
+  const none = await Machine.run({ name: "skills", input: {}, cwd: "main" }, work, signal);
+  expect(JSON.parse(none.text).map((s: any) => s.name)).not.toContain("criar-issue-linear");
+  // the server sends config numih_home in both jobs
+  const sent: any[] = [];
+  const opened = spyOn(Tools, "opened").mockImplementation(() => [["dev", { terms: new Map([["t", { live: () => true }]]), skills: [] }]] as any);
+  const start = spyOn(Tools, "start_job").mockImplementation((_t: any, _d: any, job: any) => {
+    sent.push(job);
+    return "no";
+  });
+  const job = spyOn(Tools, "job").mockImplementation(async (_t: any, _d: any, j: any) => {
+    sent.push(j);
+    return { text: "", fail: false };
+  });
+  try {
+    await Tools.look(tools);
+    await call("skill", { device: "dev", name: "criar-issue-linear" });
+  } finally {
+    opened.mockRestore();
+    start.mockRestore();
+    job.mockRestore();
+  }
+  expect(sent).toEqual([
+    { name: "skills", input: { numih: config.NUMIH_SET }, cwd: "main" },
+    { name: "skill", input: { name: "criar-issue-linear", numih: config.NUMIH_SET }, cwd: "main" },
+  ]);
+  expect(config.NUMIH_SET).not.toBe("");
 });
 
 test("numih_skills: $NUMIH_HOME if absolute, as numih-sync reads it; else ~/.unii/numih", () => {

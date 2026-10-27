@@ -15,9 +15,9 @@ cópia antiga `~/repository/numih/mono/ai_assistente` (`88d4862`, de
 
 | Item | Valor |
 |---|---|
-| Repositório | `Numih/mcp` (antes `Numih/ai_assistente`; o workspace ainda o chama `modules/ai_assistente`, gitlink `4315647e`) |
+| Repositório | `Numih/mcp` (antes `Numih/ai_assistente`; o workspace ainda o chama `modules/ai_assistente`, gitlink `4315647e`). Verificado sem rede em 27/10/2026: o gitlink, com `git ls-tree` na cópia `~/.unii/numih/workspace` (commit `762a30b8`); o nome `Numih/mcp`, só no campo `canonico` de `~/.unii/numih/modulos.json` (gerado pelo `numih-map` a partir do GitHub). O nome não foi confirmado de novo no GitHub. |
 | O que é | Servidor MCP (Streamable HTTP, `POST /mcp`) que expõe o ERP a agentes de IA pelo gateway GraphQL. Produto de usuário final. |
-| Portas (catálogo) | `ai-assistente-mcp`: 4447 (`docker_stable`), 4448 (`local_dev`) |
+| Portas (catálogo) | `ai-assistente-mcp`: 4447 (`docker_stable`), 4448 (`local_dev`). Lidas em `~/.unii/numih/modulos.json`, que o `numih-map` gera a partir do catálogo de portas do `devtools`. O catálogo em si não foi lido: não há cópia local do `devtools`. Não verificado na fonte. |
 | Ferramentas | `graphql_listar_operacoes`, `graphql_descrever_tipo`, `graphql_executar_query`, `graphql_executar_mutation` (ligada por padrão: `AI_ASSISTENTE_ALLOW_MUTATIONS=true`), `numih_descobrir_dominios`, `numih_buscar_operacoes`, `numih_descrever_operacao`, `numih_validar_operacao`, `numih_exemplos`, `numih_consultar_glossario` |
 | Autenticação | O servidor não autentica. O gateway da Numih autentica (OAuth 2.1 ou sessão), hidrata a identidade e assina os cabeçalhos internos; o RBAC fica nos subgrafos. Chamada direta a `/mcp` só serve para o aperto de mão e a lista de ferramentas. |
 | Endereço para clientes | `<origem do ambiente>/api/mcp` (`CAMINHO_MCP` em `agents/client/src/pages/conexoes/clientes-mcp.ts`). As origens de homologação e produção não foram verificadas. |

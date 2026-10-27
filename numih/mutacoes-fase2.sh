@@ -23,7 +23,7 @@ fi
 # ID <TAB> arquivo (relativo à raiz) <TAB> trecho original <TAB> trecho mutado
 MUTACOES="$(cat <<'TABELA'
 R1	Tools.ts	    if (agent.role.numih) {	    if (false) {
-R2	Tools.ts	+ pack.text.trim();	+ "";
+R2	Tools.ts	+ pack.text;	+ "";
 R3	Tools.ts	      console.log(Numih.log_line(agent.name, pack));	      Numih.log_line(agent.name, pack);
 R4	Tools.ts	(role.numih ? SUB_NUMIH : "")	("")
 R5	Tools.ts	numih: sub[3] !== undefined	numih: false
@@ -33,7 +33,7 @@ R8	Tools.ts	if (args.numih !== undefined && typeof args.numih !== "boolean") {	i
 R9	Tools.ts	label: Tools.label_clean(sub[4] ?? "")	label: Tools.label_clean(sub[3] ?? "")
 P1	Numih.ts	    if (bytes > max) {	    if (bytes >= max) {
 P2	Numih.ts	n.endsWith(".md") && n !== CORE_RULE	n.endsWith(".md")
-P3	Numih.ts	+ text.trim() +	+ text.trim().slice(0, 40) +
+P3	Numih.ts	+ text.trim();	+ text.trim().slice(0, 40);
 P4	Numih.ts	    const bytes = Buffer.byteLength(rules, "utf8");	    const bytes = rules.length;
 P5	Numih.ts	    if (text.trim() === "") {	    if (false) {
 P6	Numih.ts	l.endsWith(" " + ref)	l.endsWith(" " + ref + "x")
@@ -45,12 +45,41 @@ M1	Machine.ts	[home + "/.agents/skills", dir + "/.agents/skills", numih]	[home +
 M2	Machine.ts	(NUMIH_SKILLS_OFF.includes(name) || NUMIH_SKILLS_OFF.includes(head?.name))	NUMIH_SKILLS_OFF.includes(name)
 M3	Machine.ts	const off = root === numih && (	const off = (
 M4	Machine.ts	    return skill_head_lines(m[1]);	    return null;
-M5	Machine.ts	const root = set.startsWith("/") ? set	const root = set !== "" ? set
-M6	Machine.ts	/^(["']).*\1$/.test(v) ? v.slice(1, -1) : v	v
-M7	Machine.ts	if (kv !== null && !(kv[1] in out)) {	if (kv !== null) {
+M5	Machine.ts	: var_.startsWith("/") ? var_	: var_ !== "" ? var_
+M6	Machine.ts	? whole.slice(1, -1) : null	? whole : null
+M7	Machine.ts	if (v !== null && !(kv[1] in out)) {	if (v !== null) {
 M8	Machine.ts	[home + "/.agents/skills", dir + "/.agents/skills", numih]	[numih, home + "/.agents/skills", dir + "/.agents/skills"]
 L1	Pipeline.ts	(?: with the Numih rules)?	
 C1	Config.ts	Number.isSafeInteger(n) && n > 0 ? n	Number.isSafeInteger(n) && n >= 0 ? n
+A3	Numih.ts	n !== CORE_RULE).sort();	n !== CORE_RULE);
+A11	Numih.ts	p.replace(/`/g, "'")	p
+A12a	Numih.ts	{40,64}$/.test(head)	{39,64}$/.test(head)
+A12b	Numih.ts	{40,64}$/.test(head)	{40,}$/.test(head)
+A12c	Numih.ts	{40,64}$/.test(sha)	{39,64}$/.test(sha)
+A12d	Numih.ts	{40,64}$/.test(sha)	{40,65}$/.test(sha)
+A18	Numih.ts	const TESTS_RULE = "25-isolamento-de-testes";	const TESTS_RULE = "25-isolamento";
+B2	Numih.ts	se uma contrariar a outra, pare e relate ao Unii	em caso de dúvida, siga o usuário
+B10	Numih.ts	/^# \S/.test(l)	/^#\s*\S/.test(l)
+B12	Numih.ts	if (lines[0]?.trim() === "---") {	if (true) {
+B16	Machine.ts	.slice(0, 1024)	.slice(0, 1025)
+B18	Tools.ts	typeof args.numih !== "boolean") {	typeof args.numih !== "boolean" && args.numih !== "true") {
+N1	Numih.ts	+ text.trim();	+ text.trim() + String.fromCharCode(10);
+N2	Numih.ts	+ todo;	+ todo + String.fromCharCode(10);
+H1	Tools.ts	input: { numih: config.NUMIH_SET }, cwd	input: {}, cwd
+H2	Tools.ts	String(args.name), numih: config.NUMIH_SET }	String(args.name) }
+H3	Machine.ts	cwd, Machine.numih_skills(os.homedir(), process.env, input.numih))), fail	cwd)), fail
+H4	Machine.ts	String(input.name), Machine.numih_skills(os.homedir(), process.env, input.numih));	String(input.name));
+H5	Numih.ts	Machine.numih_home(os.homedir(), process.env, config.NUMIH_SET)	Machine.numih_home(os.homedir(), process.env, "")
+H6	Machine.ts	own.startsWith("~/") ? home + own.slice(1)	own.startsWith("~/") ? own
+H7	Machine.ts	typeof set === "string" ? set.trim() : ""	typeof set === "string" ? set : ""
+H8	Machine.ts	return root.replace(/(.)\/+$/, "$1");	return root;
+S1	Machine.ts	if (block[1] === "|") {	if (block[1] !== "|") {
+S2	Machine.ts	const cut = Math.min(	const cut = 0 * Math.min(
+S3	Machine.ts	.filter((l) => l !== "")].join(" ");	.filter((l) => l !== "")].slice(0, 1).join(" ");
+S4	Machine.ts	if (/^[\[{&*!%@`]/.test(first)) {	if (false) {
+S5	Machine.ts	? whole.slice(1, -1) : null	? whole.slice(1, -1) : whole
+S6	Machine.ts	(/^[ \t]/.test(lines[k + 1]) || lines[k + 1].trim() === "")	/^[ \t]/.test(lines[k + 1])
+S7	Machine.ts	[+-]?(?:[ \t]+#.*)?$/.exec(first)	[+-]?$/.exec(first)
 TABELA
 )"
 

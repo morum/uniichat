@@ -393,12 +393,14 @@ export namespace Tools {
     return { text: lines.length === 0 ? "" : SKILLS + "\n" + lines.join("\n") + "\n\n", mark: false };
   }
 
-  // each open device's skills, asked as a job; one that fails (a unii
-  // from before skills) has none
+  // each open device's skills, asked as a job that carries config
+  // numih_home (Machine.numih_home: the cursor's skills from the dir the
+  // Numih rules come from); one that fails (a unii from before skills)
+  // has none
   export async function look(tools: Tools, only: string | null = null): Promise<void> {
     const live = Tools.opened(tools).filter(([name, d]) => (only === null || name === only) && [...d.terms.values()].some((t) => t.live()));
     await Promise.all(live.map(async ([name, d]) => {
-      const run = Tools.start_job(tools, name, { name: "skills", input: {}, cwd: "main" }, crypto.randomUUID());
+      const run = Tools.start_job(tools, name, { name: "skills", input: { numih: config.NUMIH_SET }, cwd: "main" }, crypto.randomUUID());
       if (typeof run === "string") {
         return;
       }
@@ -590,7 +592,7 @@ export namespace Tools {
         return { text: n === 0 ? "No call was waiting for a usage limit." : "Woke " + n + " call" + (n === 1 ? "" : "s") + " waiting for a usage limit; any still limited waits again.", fail: false };
       }
       case "skill": {
-        return Tools.job(tools, String(args.device), { name, input: { name: String(args.name) }, cwd: "main" }, signal, id);
+        return Tools.job(tools, String(args.device), { name, input: { name: String(args.name), numih: config.NUMIH_SET }, cwd: "main" }, signal, id);
       }
       case "restart": {
         return Tools.restart(tools, args, Restart.how(process.env));
@@ -968,7 +970,7 @@ export namespace Tools {
     if (agent.role.numih) {
       const pack = Numih.pack();
       console.log(Numih.log_line(agent.name, pack));
-      sub += "\n\n" + pack.text.trim();
+      sub += "\n\n" + pack.text;
     }
     const system = own === "" ? sub : sub + "\n\n" + AGENT_PROMPT + "\n\n" + own;
     const blocks = [...agent.view, Tools.devices(tools), Tools.skills(tools), log];
