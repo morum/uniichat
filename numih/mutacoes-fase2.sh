@@ -82,6 +82,9 @@ S6	Machine.ts	(/^[ \t]/.test(lines[k + 1]) || lines[k + 1].trim() === "")	/^[ \t
 S7	Machine.ts	[+-]?(?:[ \t]+#.*)?$/.exec(first)	[+-]?$/.exec(first)
 S8	Machine.ts	&*!%@`]/.test(first)	&*!%@]/.test(first)
 S9	Machine.ts	if (kv === null) {\n      continue;\n    }	if (kv === null) {\n    }
+S10	Machine.ts	/^([A-Za-z][\w-]*):	/^[ \t]*([A-Za-z][\w-]*):
+S11	Machine.ts	):[ \t]+(\S.*)$/.exec(lines[k])	):[ \t]*(\S.*)$/.exec(lines[k])
+S12	Machine.ts	skill_value(kv[2].trim(), under)	skill_value(kv[2], under)
 TABELA
 )"
 

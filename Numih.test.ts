@@ -509,6 +509,30 @@ test("skills: in a frontmatter strict YAML refuses, a top-level line that is no 
   expect(got.map((s) => [s.name, s.description])).toEqual([["sem-chave", "lida depois: sim"]]);
 });
 
+test("skills: in a frontmatter strict YAML refuses, a key is read only at the line's start and only with a space after the \":\"; a value's trailing spaces are cut before its quotes are read", () => {
+  const root = path.join(TMP, "chave-exata");
+  const put = (dir: string, head: string) => {
+    fs.mkdirSync(path.join(root, dir), { recursive: true });
+    // the last line makes strict YAML refuse it all
+    fs.writeFileSync(path.join(root, dir, "SKILL.md"), "---\nname: " + dir + "\n" + head + "\nx: [quebrado\n---\n# corpo\n");
+  };
+  // an indented "description:" after a comment is no key: the later one wins
+  put("recuada", "# comentário\n  description: recuada: não\ndescription: da margem: sim");
+  // "description:" with no space after it is no key either
+  put("colada", "description:colada\ndescription: com espaço: sim");
+  // spaces after the closing quote: the quotes still go
+  put("aspas-espaco", "description: \"entre aspas: sim\"   ");
+  // control: the same keys, read as they are
+  put("controle", "description: só a margem: sim");
+  const got = Machine.skills(path.join(TMP, "ninguem"), path.join(TMP, "nenhum"), root);
+  expect(got.map((s) => [s.name, s.description])).toEqual([
+    ["aspas-espaco", "entre aspas: sim"],
+    ["colada", "com espaço: sim"],
+    ["controle", "só a margem: sim"],
+    ["recuada", "da margem: sim"],
+  ]);
+});
+
 test("skills: a description is cut at 1024 characters", () => {
   const root = path.join(TMP, "longa");
   const long = "a".repeat(1023) + "bc" + "d".repeat(100);
