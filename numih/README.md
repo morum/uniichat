@@ -172,9 +172,9 @@ Duas execuções simultâneas se serializam por uma trava (`flock` em
 ## Testes
 
 ```bash
-bash numih/test-numih-sync.sh   # 590 verificações com remotos git locais num tmp próprio
+bash numih/test-numih-sync.sh   # 596 verificações com remotos git locais num tmp próprio
 bun test numih/                 # 14 testes do gerador do mapa (repositório git, fixtures, gh falso)
-bash numih/mutacoes.sh          # 69 mutações (IDs A1, S22…S44, B1…B6, V01, T07, M01…M04, M11, M11b, M13, C5a/C5b, N1/N1m, F1/F2, V1…V21, E1…E6, P5, P6, P12, G1…G3); todas precisam morrer
+bash numih/mutacoes.sh          # 72 mutações (IDs A1, S22…S44, B1…B6, V01, T07, M01…M04, M11, M11b, M13, C5a/C5b, N1/N1m, F1/F2, V1…V21, E1…E6, P5, P6, P12, G1…G3, X7/X7w/X7h); todas precisam morrer
 ```
 
 Algumas verificações são estruturais, porque o comportamento não muda sem a
@@ -193,9 +193,13 @@ que nada do clone sobra, que a pasta fica vazia (a sobra reproduzida), que o
 linha a cita), que o `sync` (TERM, HUP) ou o `mod lib` (KILL)
 seguinte a remove e clona de novo, e que o `check` final fica em dia. O
 «nenhum git roda» é visto pelo git falso do teste, que registra cada chamada
-com os argumentos e o diretório corrente: o registro do `check` na pasta
-vazia não pode citá-la, e o do `check` final, com a cópia refeita, precisa
-citá-la (prova de que o mesmo registro acharia um git nela). Para INT, no
+com os argumentos, o diretório corrente e as variáveis `GIT_DIR` e
+`GIT_WORK_TREE`: o registro do `check` na pasta vazia não pode citá-la, e
+toda chamada dele precisa ser `git -C` na workspace ou na cursor, sem
+`GIT_DIR` nem `GIT_WORK_TREE` (a única exceção é a leitura global do
+`core.sshCommand` no início, fora de `NUMIH_HOME`); o do `check` final, com a
+cópia refeita, precisa citá-la e ser pego pelo mesmo filtro (prova de que o
+registro e o filtro achariam um git nela). Para INT, no
 grupo (Ctrl-C) e só no PID, confere que a pasta é apagada na hora e que o
 `mod lib` seguinte clona.
 

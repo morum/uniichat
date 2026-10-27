@@ -88,6 +88,9 @@ P12	bin/numih-sync	sync	if rm -rf -- "$dir"; then	if rm -rf -- "$dir" "$dir.bak"
 G1	bin/numih-sync	sync	  if pasta_vazia "$dir"; then\n    erro	  g "$dir" rev-parse --git-dir >/dev/null 2>&1 || :\n  if pasta_vazia "$dir"; then\n    erro
 G2	bin/numih-sync	sync	  integra "$nome" "$dir" || return 1\n  if [ "$fetch" = 1 ]	  g "$dir" rev-parse --git-dir >/dev/null 2>&1 || :\n  integra "$nome" "$dir" || return 1\n  if [ "$fetch" = 1 ]
 G3	bin/numih-sync	sync	  if pasta_vazia "$dir"; then\n    erro	  (cd -- "$dir" && git rev-parse --git-dir >/dev/null 2>&1 9>&-) || :\n  if pasta_vazia "$dir"; then\n    erro
+X7	bin/numih-sync	sync	  integra "$nome" "$dir" || return 1\n  if [ "$fetch" = 1 ]	  GIT_DIR="$dir/.git" git rev-parse --git-dir >/dev/null 2>&1 9>&- || :\n  integra "$nome" "$dir" || return 1\n  if [ "$fetch" = 1 ]
+X7w	bin/numih-sync	sync	  integra "$nome" "$dir" || return 1\n  if [ "$fetch" = 1 ]	  GIT_WORK_TREE="$dir" g "$NUMIH_HOME/workspace" status --porcelain >/dev/null 2>&1 || :\n  integra "$nome" "$dir" || return 1\n  if [ "$fetch" = 1 ]
+X7h	bin/numih-sync	sync	  integra "$nome" "$dir" || return 1\n  if [ "$fetch" = 1 ]	  g "$NUMIH_HOME" rev-parse --git-dir >/dev/null 2>&1 || :\n  integra "$nome" "$dir" || return 1\n  if [ "$fetch" = 1 ]
 TABELA
 )"
 

@@ -43,14 +43,16 @@ git config --global core.hooksPath "$T/ganchos-do-usuario"
 # git observado: um git falso no PATH (só quando o teste pede) registra o
 # ambiente de cada chamada (pedido de senha, ssh, trava fd 9 aberta) e, se
 # NUMIH_TESTE_FINGE_ANCESTRAL=1, finge que `merge-base --is-ancestor` passou.
-# Cada linha termina com o diretório corrente (pwd=), para que um git rodado
-# dentro de uma pasta, sem -C, também apareça no registro.
+# Cada linha termina com o diretório corrente (pwd=) e as variáveis GIT_DIR
+# (gitdir=) e GIT_WORK_TREE (worktree=), para que um git rodado dentro de uma
+# pasta, sem -C, ou apontado para ela só pelo ambiente, também apareça no
+# registro.
 REAL_GIT="$(command -v git)"
 mkdir -p "$T/shim"
 cat > "$T/shim/git" <<EOF
 #!/bin/sh
 if [ -e /proc/\$\$/fd/9 ]; then fd9=aberto; else fd9=fechado; fi
-printf 'prompt=%s askpass=%s ssh=%s fd9=%s args=%s pwd=%s\\n' "\${GIT_TERMINAL_PROMPT-}" "\${GIT_ASKPASS-}" "\${GIT_SSH_COMMAND-}" "\$fd9" "\$*" "\$PWD" >> "$T/git.log"
+printf 'prompt=%s askpass=%s ssh=%s fd9=%s args=%s pwd=%s gitdir=%s worktree=%s\\n' "\${GIT_TERMINAL_PROMPT-}" "\${GIT_ASKPASS-}" "\${GIT_SSH_COMMAND-}" "\$fd9" "\$*" "\$PWD" "\${GIT_DIR-}" "\${GIT_WORK_TREE-}" >> "$T/git.log"
 if [ -n "\${NUMIH_TESTE_IGNORA_TERM-}" ]; then
   # só a busca da cópia cursor (as outras seguem normais)
   case " \$* " in *"/cursor -c "*" fetch "*) trap '' TERM; exec sleep "\$NUMIH_TESTE_IGNORA_TERM" ;; esac
@@ -73,6 +75,18 @@ fi
 exec "$REAL_GIT" "\$@"
 EOF
 chmod 0755 "$T/shim/git"
+# Linhas do registro que NÃO são `git -C <home>/workspace` nem
+# `git -C <home>/cursor` sem GIT_DIR e GIT_WORK_TREE (as únicas aceitas no
+# check com uma pasta vazia em mod/), além da leitura global do
+# core.sshCommand que o script faz ao começar (sem -C, fora de <home>).
+fora_de_ws_cursor() { # NUMIH_HOME
+  awk -v w="args=-C $1/workspace " -v c="args=-C $1/cursor " -v fim=" gitdir= worktree=" \
+      -v ssh=" args=config --get core.sshCommand pwd=" -v casa="$1/" '
+    substr($0, length($0) - length(fim) + 1) != fim { print; next }
+    index($0, w) || index($0, c) { next }
+    (i = index($0, ssh)) && index(substr($0, i + length(ssh)), casa) != 1 && $0 ~ /^prompt=[^ ]* askpass=[^ ]* ssh=[^ ]* fd9=[^ ]* args=config --get core\.sshCommand pwd=/ { next }
+    { print }' "$T/git.log" 2>/dev/null
+}
 # gh falso: nenhum teste usa o gh real.
 mkdir -p "$T/gh-falso"; printf '#!/bin/sh\nexit 1\n' > "$T/gh-falso/gh"; chmod 0755 "$T/gh-falso/gh"
 
@@ -848,6 +862,11 @@ for sig in TERM HUP KILL; do
     # que roda nela) e só uma linha a cita
     [ -s "$T/git.log" ] && ok "$sig: controle, o git falso registra o git do check" || falha "$sig: controle, o git do check não passou pelo git falso"
     grep -qF -- "$HS/mod/lib" "$T/git.log" 2>/dev/null && { falha "$sig: check rodou git na pasta vazia"; grep -F -- "$HS/mod/lib" "$T/git.log"; } || ok "$sig: check não roda git na pasta vazia"
+    # e, mais estrito: toda chamada do check é `git -C` na workspace ou na
+    # cursor, sem GIT_DIR nem GIT_WORK_TREE no ambiente (um git apontado para a
+    # pasta vazia só pelo ambiente, ou rodado fora das duas cópias, aparece aqui)
+    fora="$(fora_de_ws_cursor "$HS")"
+    [ -s "$T/git.log" ] && [ -z "$fora" ] && ok "$sig: check só roda git com -C na workspace e na cursor, sem GIT_DIR/GIT_WORK_TREE" || { falha "$sig: check rodou git fora de -C workspace/cursor ou com GIT_DIR/GIT_WORK_TREE"; printf '%s\n' "$fora" | head -5; }
     [ "$(grep -cF "$HS/mod/lib" "$T/out")" = 1 ] && ok "$sig: check cita a pasta vazia uma só vez" || { falha "$sig: check cita a pasta vazia mais de uma vez"; cat "$T/out"; }
     if [ "$sig" = KILL ]; then
       espera_rc "$sig: mod lib seguinte funciona" 0 env NUMIH_HOME="$HS" NUMIH_REMOTE_BASE="$T/remotos" "$SYNC" mod lib
@@ -860,6 +879,7 @@ for sig in TERM HUP KILL; do
     rm -f "$T/git.log"
     espera_rc "$sig: check em dia depois" 0 env PATH="$T/shim:$PATH" NUMIH_HOME="$HS" NUMIH_REMOTE_BASE="$T/remotos" "$SYNC" check
     grep -qF -- "-C $HS/mod/lib " "$T/git.log" 2>/dev/null && ok "$sig: controle, o git do check na cópia refeita aparece no registro" || { falha "$sig: controle, o git do check na cópia refeita não aparece no registro"; cat "$T/git.log" 2>/dev/null || :; }
+    [ -n "$(fora_de_ws_cursor "$HS")" ] && ok "$sig: controle, o filtro estrito acha o git do check na cópia refeita" || falha "$sig: controle, o filtro estrito não acha o git do check na cópia refeita"
   else falha "$sig: o clone lento não começou"; cat "$T/out-sinal"; kill -9 "$ps5" 2>/dev/null || true; fi
   mata_sobras "$PENDURA5"
 done
