@@ -11,7 +11,16 @@ set -euo pipefail
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SYNC="$AQUI/bin/numih-sync"
 T="$(mktemp -d "${TMPDIR:-/tmp}/numih-sync-teste.XXXXXX")"
-trap 'jobs -p | xargs -r kill 2>/dev/null || true; rm -rf "$T"' EXIT
+# Processos de remoto pendurado que sobrarem (só os deste teste: duração única
+# no argumento). Morte por PID, nunca por padrão de nome (pkill).
+mata_sobras() { # duração do sleep
+  local p
+  for p in $(ps -eo pid=,args= | awk -v a="sleep $1" '{ pid = $1; $1 = ""; sub(/^ /, ""); if ($0 == a) print pid }'); do
+    kill -9 "$p" 2>/dev/null || true
+  done
+}
+SOBRAS=()
+trap 'jobs -p | xargs -r kill 2>/dev/null || true; for d in "${SOBRAS[@]}"; do mata_sobras "$d"; done; rm -rf "$T"' EXIT
 mkdir -p "$T/home-falso" "$T/gh"
 export HOME="$T/home-falso" GH_CONFIG_DIR="$T/gh"
 unset GH_TOKEN GITHUB_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN
@@ -40,6 +49,10 @@ cat > "$T/shim/git" <<EOF
 #!/bin/sh
 if [ -e /proc/\$\$/fd/9 ]; then fd9=aberto; else fd9=fechado; fi
 printf 'prompt=%s askpass=%s ssh=%s fd9=%s args=%s\\n' "\${GIT_TERMINAL_PROMPT-}" "\${GIT_ASKPASS-}" "\${GIT_SSH_COMMAND-}" "\$fd9" "\$*" >> "$T/git.log"
+if [ -n "\${NUMIH_TESTE_IGNORA_TERM-}" ]; then
+  # só a busca da cópia cursor (as outras seguem normais)
+  case " \$* " in *"/cursor -c "*" fetch "*) trap '' TERM; exec sleep "\$NUMIH_TESTE_IGNORA_TERM" ;; esac
+fi
 if [ -n "\${NUMIH_TESTE_FINGE_ANCESTRAL-}" ]; then
   case " \$* " in *" merge-base --is-ancestor "*) exit 0 ;; esac
 fi
@@ -75,7 +88,7 @@ copia_limpa_na_main() { # descrição, dir
 
 # Remotos: workspace (com um submódulo registrado) e cursor
 mkdir -p "$T/remotos"
-for r in cursor lib workspace .oculto ffteste; do
+for r in cursor lib workspace .oculto ffteste x.git; do
   git init -q --bare "$T/remotos/$r.git"
   git clone -q "$T/remotos/$r.git" "$T/src-$r" 2>/dev/null
   echo "$r" > "$T/src-$r/README.md"
@@ -103,6 +116,12 @@ cmp -s "$T/ganchos-do-usuario/pre-commit" "$T/pre-commit.original" \
 for r in workspace cursor; do
   [ "$(git -C "$NUMIH_HOME/$r" config --local core.hooksPath)" = "$NUMIH_HOME/$r/.git/hooks" ] \
     && ok "$r: core.hooksPath local aponta para o próprio .git/hooks" || falha "$r: core.hooksPath local ausente ou errado"
+done
+for r in workspace cursor; do
+  [ "$(git -C "$NUMIH_HOME/$r" config --local submodule.recurse)" = false ] \
+    && [ "$(git -C "$NUMIH_HOME/$r" config --local fetch.recurseSubmodules)" = false ] \
+    && ok "$r: submodule.recurse e fetch.recurseSubmodules = false no config local" \
+    || falha "$r: recursão de submódulos não desligada no config local"
 done
 echo y >> "$T/src-lib/README.md"
 rc=0; git -C "$T/src-lib" commit -qam "commit fora das cópias" >/dev/null 2>&1 || rc=$?
@@ -188,6 +207,28 @@ echo x >> "$C/README.md"
 espera_rc "sync recusa cópia alterada" 1 "$SYNC" sync
 espera_rc "check recusa cópia alterada" 1 "$SYNC" check --no-fetch
 git -C "$NUMIH_HOME/cursor" checkout -q -- README.md
+# Arquivo não rastreado (dentro de um diretório novo) também reprova a cópia limpa.
+mkdir -p "$C/novo-dir"; echo n > "$C/novo-dir/nao-rastreado.txt"
+espera_rc "sync recusa arquivo não rastreado" 1 "$SYNC" sync
+tem "motivo: alteração local (não rastreado)" "cursor: cópia de referência com alteração local \(1 arquivo\(s\)\)"
+tem "lista o arquivo não rastreado" "novo-dir/nao-rastreado\.txt"
+espera_rc "check recusa arquivo não rastreado" 1 "$SYNC" check --no-fetch
+rm -rf "$C/novo-dir"
+# .git/hooks apagado: o sync recria o diretório e os ganchos.
+rm -rf "$C/.git/hooks"
+espera_rc "sync recria .git/hooks apagado" 0 "$SYNC" sync
+[ -x "$C/.git/hooks/pre-commit" ] && [ -x "$C/.git/hooks/pre-push" ] && ok "ganchos recriados" || { falha "ganchos não recriados"; ls -la "$C/.git" | head; }
+echo x >> "$C/README.md"
+recusado_pelo_gancho "pre-commit recriado recusa commit" git -C "$C" commit -qam "proibido"
+git -C "$C" checkout -q -- README.md
+# Gancho que é diretório: o sync não põe o arquivo dentro dele; para com erro.
+rm -f "$C/.git/hooks/pre-push"; mkdir "$C/.git/hooks/pre-push"
+espera_rc "sync recusa gancho que é diretório" 1 "$SYNC" sync
+tem "motivo: gancho é diretório" "não consegui trocar o gancho .*/\.git/hooks/pre-push \(é diretório ou não pode ser substituído\)"
+[ -z "$(ls -A "$C/.git/hooks/pre-push")" ] && ok "nada posto dentro do diretório do gancho" || { falha "pôs arquivo dentro do diretório do gancho"; ls -la "$C/.git/hooks/pre-push"; }
+[ -z "$(ls -A "$C/.git/hooks" | grep '^\.numih-' || true)" ] && ok "sem temporário de gancho sobrando (diretório)" || falha "sobrou temporário de gancho (diretório)"
+rmdir "$C/.git/hooks/pre-push"
+espera_rc "sync volta a passar sem o diretório" 0 "$SYNC" sync
 rc=0; git -C "$NUMIH_HOME/cursor" push origin main >/dev/null 2>&1 || rc=$?
 [ "$rc" != 0 ] && ok "push recusado" || falha "push passou"
 [ "$(git -C "$NUMIH_HOME/cursor" config remote.origin.pushurl)" = "no-push://copia-de-referencia-somente-leitura" ] \
@@ -222,6 +263,12 @@ tem "motivo: nome inválido (../fora)" "nome de repositório inválido: '\.\./fo
 espera_rc "mod recusa nome que começa com ponto" 1 "$SYNC" mod ".oculto"
 tem "motivo: nome inválido (.oculto)" "nome de repositório inválido: '\.oculto'"
 [ ! -e "$NUMIH_HOME/mod/.oculto" ] && ok "nada clonado para .oculto" || falha "clonou .oculto"
+# x.git.git existe no remoto e clonaria sem a regra: a recusa é do sufixo .git.
+for n in x.git X.GIT; do
+  espera_rc "mod recusa nome terminado em .git ($n)" 1 "$SYNC" mod "$n"
+  tem "motivo: sufixo .git ($n)" "nome de repositório inválido: '$n' \(sem o sufixo \.git\)"
+done
+[ ! -e "$NUMIH_HOME/mod/x.git" ] && ok "nada clonado para x.git" || falha "clonou x.git"
 espera_rc "sync inclui mod/" 0 "$SYNC" sync
 grep -q "^lib: em dia" "$T/out" && ok "mod/lib sincronizado no sync" || falha "mod/lib fora do sync"
 
@@ -253,7 +300,34 @@ espera_rc "recusa NUMIH_HOME = HOME" 1 env HOME="$T/falso" NUMIH_HOME="$T/falso"
 espera_rc "recusa NUMIH_HOME = HOME com barra no fim" 1 env HOME="$T/falso" NUMIH_HOME="$T/falso/" "$SYNC" check
 espera_rc "recusa NUMIH_HOME acima do HOME" 1 env HOME="$T/falso" NUMIH_HOME="$T" "$SYNC" check
 tem "motivo: NUMIH_HOME acima do HOME" "NUMIH_HOME não pode ser o HOME, um diretório acima dele nem a raiz"
-espera_rc "recusa NUMIH_HOME = /" 1 env HOME="$T/falso" NUMIH_HOME=/ "$SYNC" check
+# A raiz em qualquer grafia, em todos os comandos que escrevem ou buscam.
+for v in / // /. /.. /// /./ /../..; do
+  for c in check sync map "mod lib" install; do
+    # shellcheck disable=SC2086
+    espera_rc "recusa NUMIH_HOME=$v ($c)" 1 env HOME="$T/falso" NUMIH_HOME="$v" "$SYNC" $c
+    tem "motivo: raiz ($v, $c)" "^numih-sync: erro: NUMIH_HOME não pode ser a raiz do sistema \(/\)"
+  done
+done
+# NUMIH_HOME que é arquivo, .lock que é diretório ou fifo: mensagem própria, rc 1.
+so_erros_proprios() { # descrição: toda linha da saída é um erro do numih-sync
+  if [ -s "$T/out" ] && ! grep -qv '^numih-sync: erro: ' "$T/out"; then ok "$1"; else falha "$1"; cat "$T/out"; fi
+}
+printf 'arquivo\n' > "$T/home-arquivo"
+espera_rc "recusa NUMIH_HOME que é arquivo" 1 env NUMIH_HOME="$T/home-arquivo" "$SYNC" check --no-fetch
+tem "motivo: NUMIH_HOME não é diretório" "NUMIH_HOME existe e não é diretório: $T/home-arquivo"
+so_erros_proprios "NUMIH_HOME arquivo: só erro próprio, sem erro cru do bash"
+[ "$(cat "$T/home-arquivo")" = arquivo ] && ok "arquivo do NUMIH_HOME intacto" || falha "mexeu no arquivo do NUMIH_HOME"
+mkdir -p "$T/home-lockdir/.lock"
+espera_rc "recusa .lock que é diretório" 1 env NUMIH_HOME="$T/home-lockdir" "$SYNC" check --no-fetch
+tem "motivo: .lock diretório" "home-lockdir/\.lock existe e não é arquivo comum"
+so_erros_proprios ".lock diretório: só erro próprio, sem erro cru do bash"
+mkdir -p "$T/home-lockfifo"; mkfifo "$T/home-lockfifo/.lock"
+espera_rc "recusa .lock que é fifo (sem pendurar)" 1 timeout 20 env NUMIH_HOME="$T/home-lockfifo" "$SYNC" check --no-fetch
+tem "motivo: .lock fifo" "home-lockfifo/\.lock existe e não é arquivo comum"
+# map sem a cópia do workspace: «ausente», como o check.
+espera_rc "map sem workspace" 1 env NUMIH_HOME="$T/home-sem-ws" "$SYNC" map
+tem "motivo: workspace ausente (map)" "^numih-sync: erro: workspace: ausente em $T/home-sem-ws/workspace \(rode: numih-sync sync\)$"
+grep -q "não é repositório git" "$T/out" && falha "map ainda diz «não é repositório git» sem o diretório" || ok "map não diz «não é repositório git» sem o diretório"
 espera_rc "recusa NUMIH_HOME em ~/repository" 1 env HOME="$T/falso" NUMIH_HOME="$T/falso/repository/numih" "$SYNC" check
 [ ! -e "$T/falso/repository" ] && ok "nada criado em ~/repository" || falha "criou algo em ~/repository"
 # Com «..» no caminho: só o realpath do NUMIH_HOME reconhece ~/repository.
@@ -327,6 +401,19 @@ espera_rc "sync recusa cópia que é link para fora" 1 env NUMIH_HOME="$HL" "$SY
   && ok "clone de fora não foi buscado nem avançado" || falha "check/sync mexeu no clone de fora"
 [ "$(cat "$T/fora-ws/.git/config")" = "$fora_conf" ] && [ ! -e "$T/fora-ws/.git/hooks/pre-commit" ] \
   && ok "config e ganchos do clone de fora intactos" || falha "sync escreveu config ou ganchos no clone de fora"
+# (a2) link para um irmão cujo nome começa com o do NUMIH_HOME (home-link-mau):
+#      um teste de prefixo sem a barra deixaria passar.
+mkdir -p "$HL-mau"; git clone -q "$T/remotos/workspace.git" "$HL-mau/workspace" 2>/dev/null
+git -C "$HL-mau/workspace" reset -q --hard HEAD~1
+git -C "$HL-mau/workspace" update-ref refs/remotes/origin/main HEAD
+irmao_om="$(git -C "$HL-mau/workspace" rev-parse refs/remotes/origin/main)"
+rm "$HL/workspace"; ln -s "$HL-mau/workspace" "$HL/workspace"
+espera_rc "check recusa link para irmão com o mesmo prefixo" 1 env NUMIH_HOME="$HL" "$SYNC" check
+tem "motivo: irmão com o mesmo prefixo" "workspace: $HL/workspace resolve para fora de $HL \($HL-mau/workspace\)"
+espera_rc "sync recusa link para irmão com o mesmo prefixo" 1 env NUMIH_HOME="$HL" "$SYNC" sync
+[ "$(git -C "$HL-mau/workspace" rev-parse refs/remotes/origin/main)" = "$irmao_om" ] && [ "$(git -C "$HL-mau/workspace" rev-parse HEAD)" = "$irmao_om" ] \
+  && [ ! -e "$HL-mau/workspace/.git/hooks/pre-commit" ] \
+  && ok "irmão com o mesmo prefixo intacto" || falha "check/sync mexeu no irmão com o mesmo prefixo"
 # (b) .git é arquivo que aponta para um diretório git de fora
 rm "$HL/workspace"; mkdir "$HL/workspace"; printf 'gitdir: %s\n' "$T/fora-ws/.git" > "$HL/workspace/.git"
 espera_rc "check recusa .git que aponta para fora" 1 env NUMIH_HOME="$HL" "$SYNC" check
@@ -389,6 +476,14 @@ for op in fetch clone; do
     ok "$op: ssh em BatchMode e gc em primeiro plano"
   else falha "$op sem BatchMode, sem gc.autoDetach=false ou ausente"; grep " $op " "$T/git.log" | head -3; fi
 done
+# Clone e busca nunca recursam em submódulos (estrutural: o clone ignora o
+# submodule.recurse, e a busca só recursaria em submódulo inicializado, que a
+# cópia do workspace recusa; por isso a opção é conferida na linha de comando).
+for op in fetch clone; do
+  if grep -q " $op " "$T/git.log" && ! grep " $op " "$T/git.log" | grep -v -- "--no-recurse-submodules" >/dev/null; then
+    ok "$op: sempre com --no-recurse-submodules"
+  else falha "$op sem --no-recurse-submodules"; grep " $op " "$T/git.log" | head -3; fi
+done
 # ssh configurado pelo usuário é respeitado
 git config --global core.sshCommand "ssh -F /dev/null"
 rm -f "$T/git.log"
@@ -417,7 +512,33 @@ tem "motivo: clone passou do prazo" "lib: o clone passou de 2 s \(NUMIH_FETCH_TI
 [ ! -e "$T/home-pendura/mod/lib" ] && ok "clone interrompido não deixa cópia pela metade" || falha "sobrou cópia pela metade"
 sleep 0.3
 ps -eo args= | grep -qx "sleep $PENDURA" && falha "sobrou processo do remoto pendurado" || ok "nenhum processo do remoto pendurado sobrou"
+# kill -9 no numih-sync no meio da busca: a busca não fica órfã (o timeout
+# recebe TERM pelo setpriv --pdeathsig e derruba o grupo do git).
+PENDURA2="$((PENDURA + 1))"; SOBRAS+=("$PENDURA" "$PENDURA2")
+git config --global url."ext::sh -c sleep% $PENDURA2 ".insteadOf "pendura2://x/"
+git -C "$NUMIH_HOME/cursor" config remote.origin.url "pendura2://x/cursor.git"
+NUMIH_REMOTE_BASE=pendura2://x NUMIH_FETCH_TIMEOUT=200 "$SYNC" check >"$T/out-k9" 2>&1 & pk9=$!
+vivo() { ps -eo args= | grep -qx "sleep $1"; }
+for _ in $(seq 200); do vivo "$PENDURA2" && break; sleep 0.05; done
+if vivo "$PENDURA2"; then
+  kill -9 "$pk9"; wait "$pk9" 2>/dev/null || true
+  for _ in $(seq 100); do vivo "$PENDURA2" || break; sleep 0.05; done
+  vivo "$PENDURA2" && falha "kill -9 no numih-sync deixou a busca órfã" || ok "kill -9 no numih-sync não deixa a busca órfã"
+else falha "a busca pendurada (kill -9) não começou"; cat "$T/out-k9"; kill -9 "$pk9" 2>/dev/null || true; fi
+mata_sobras "$PENDURA2"
+git -C "$NUMIH_HOME/cursor" config remote.origin.url "$T/remotos/cursor.git"
+git config --global --unset url."ext::sh -c sleep% $PENDURA2 ".insteadOf
 git config --global --unset url."ext::sh -c sleep% $PENDURA ".insteadOf
+# git que ignora TERM: o --kill-after manda KILL 10 s depois do prazo.
+PENDURA3="$((PENDURA + 2))"; SOBRAS+=("$PENDURA3")
+ini=$SECONDS
+espera_rc "busca que ignora TERM é morta pelo KILL" 1 timeout 45 env PATH="$T/shim:$PATH" NUMIH_TESTE_IGNORA_TERM="$PENDURA3" NUMIH_FETCH_TIMEOUT=1 "$SYNC" check
+dur=$((SECONDS - ini))
+tem "motivo: prazo (TERM ignorado)" "cursor: a busca na origin .* passou de 1 s \(NUMIH_FETCH_TIMEOUT\) e foi interrompida"
+[ "$dur" -lt 30 ] && ok "o KILL veio depois do TERM ignorado ($dur s)" || falha "a busca que ignora TERM levou $dur s"
+sleep 0.3
+vivo "$PENDURA3" && falha "sobrou a busca que ignora TERM" || ok "nada sobrou da busca que ignora TERM"
+mata_sobras "$PENDURA3"
 
 # Avanço rápido estrito: mesmo que a checagem de ancestral fosse burlada
 # (shim finge que passou), o merge --ff-only recusa e não deixa merge pela metade.

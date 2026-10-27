@@ -24,7 +24,8 @@
 # Saída de check: 0 = tudo em dia; 10 = alguma cópia atrás (sem erro);
 #                 1 = erro (cópia alterada, divergente, fora da main…).
 #
-# Variáveis: NUMIH_HOME (padrão ~/.unii/numih); NUMIH_REMOTE_BASE (padrão
+# Variáveis: NUMIH_HOME (padrão ~/.unii/numih; nunca a raiz, o HOME, um
+# diretório acima dele nem ~/repository); NUMIH_REMOTE_BASE (padrão
 # https://github.com/Numih — só para testes com remotos locais);
 # NUMIH_LOCK_WAIT (segundos de espera pela trava; padrão 120);
 # NUMIH_FETCH_TIMEOUT (segundos máximos de cada clone ou busca; padrão 300).
@@ -63,6 +64,11 @@ esac
 # Resolve sem criar nada (realpath -m segue os links simbólicos que existem,
 # inclusive o último componente); as guardas vêm antes de qualquer escrita.
 NUMIH_HOME="$(realpath -m "$NUMIH_HOME")"
+# A raiz (/, //, /., /..) nunca: com ela, "$NUMIH_HOME"/* vira //* e as
+# guardas abaixo (e a dentro_de_casa) deixariam de casar.
+if [ "$NUMIH_HOME" = / ]; then
+  erro "NUMIH_HOME não pode ser a raiz do sistema (/); use um diretório próprio, como ~/.unii/numih"; exit 1
+fi
 HOME_REAL="$(realpath -m "$HOME")"
 # ~/repository resolvido: se for link para outro diretório, o alvo também é
 # protegido (antes, $HOME/repository -> dados deixava passar dados/…).
@@ -82,7 +88,12 @@ if [ -z "${GIT_SSH_COMMAND:-}" ] && [ -z "${GIT_SSH:-}" ] && ! git config --get 
   export GIT_SSH_COMMAND="ssh -o BatchMode=yes"
 fi
 
-mkdir -p "$NUMIH_HOME"
+if [ -e "$NUMIH_HOME" ] && [ ! -d "$NUMIH_HOME" ]; then
+  erro "NUMIH_HOME existe e não é diretório: $NUMIH_HOME"; exit 1
+fi
+if ! mkdir -p "$NUMIH_HOME" 2>/dev/null; then
+  erro "não consegui criar o NUMIH_HOME: $NUMIH_HOME"; exit 1
+fi
 
 # Todo git roda com a trava (fd 9) fechada: um processo que o git deixe em
 # segundo plano nunca herda a trava. gc e maintenance automáticos rodam em
@@ -92,7 +103,12 @@ g() { git -C "$1" "${GIT_OPTS[@]}" "${@:2}" 9>&-; }
 
 # Clone e busca com prazo: um remoto que pendura não segura a trava para sempre.
 # Devolve o código do comando; 124 ou 137 = prazo estourado.
-com_prazo() { timeout --kill-after=10 "$FETCH_TIMEOUT" "$@" 9>&-; }
+# Se este script morrer (até por kill -9), o setpriv --pdeathsig manda TERM ao
+# timeout, que repassa o sinal ao grupo dele (git e filhos) e, passados 10 s,
+# manda KILL: nenhuma busca fica órfã. Sem setpriv (util-linux), roda sem isso.
+PRAZO_PAI=()
+if setpriv --pdeathsig TERM true 2>/dev/null; then PRAZO_PAI=(setpriv --pdeathsig TERM); fi
+com_prazo() { "${PRAZO_PAI[@]}" timeout --kill-after=10 "$FETCH_TIMEOUT" "$@" 9>&-; }
 
 # 0 se o caminho, com os links simbólicos resolvidos, fica dentro de $NUMIH_HOME.
 dentro_de_casa() {
@@ -105,7 +121,12 @@ dentro_de_casa() {
 # que seja link simbólico é recusado; o >> nunca trunca o arquivo (nem um
 # .lock que seja link físico para outro arquivo).
 if [ -L "$NUMIH_HOME/.lock" ]; then erro "$NUMIH_HOME/.lock é um link simbólico; recuso usá-lo como trava"; exit 1; fi
-exec 9>>"$NUMIH_HOME/.lock"
+if [ -e "$NUMIH_HOME/.lock" ] && [ ! -f "$NUMIH_HOME/.lock" ]; then
+  erro "$NUMIH_HOME/.lock existe e não é arquivo comum (diretório, fifo…); recuso usá-lo como trava"; exit 1
+fi
+if ! { exec 9>>"$NUMIH_HOME/.lock"; } 2>/dev/null; then
+  erro "não consegui abrir a trava $NUMIH_HOME/.lock"; exit 1
+fi
 if ! flock -w "$LOCK_WAIT" 9; then erro "outra execução do numih-sync segura a trava há $LOCK_WAIT s"; exit 1; fi
 
 # Guarda de diretório: a cópia, o diretório git dela e o diretório git comum
@@ -116,6 +137,7 @@ guarda_copia() {
   if ! dentro_de_casa "$dir"; then
     erro "$nome: $dir resolve para fora de $NUMIH_HOME ($(realpath -m -- "$dir")); não toco nele"; return 1
   fi
+  if [ ! -e "$dir" ]; then erro "$nome: ausente em $dir (rode: numih-sync sync)"; return 1; fi
   local gitdir comum
   gitdir="$(g "$dir" rev-parse --absolute-git-dir 2>/dev/null)" || { erro "$dir existe mas não é repositório git"; return 1; }
   comum="$(g "$dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 1
@@ -158,7 +180,12 @@ exit 1'
     # diretório, nunca escreve no alvo do link). Escrita num temporário novo.
     if [ -L "$alvo" ] || [ ! -f "$alvo" ] || [ "$(cat "$alvo")" != "$corpo" ]; then
       local tmp; tmp="$(mktemp "$hooks/.numih-$h.XXXXXX")" || return 1
-      printf '%s\n' "$corpo" > "$tmp" && chmod 0755 "$tmp" && mv -fT "$tmp" "$alvo" || { rm -f "$tmp"; return 1; }
+      if ! { printf '%s\n' "$corpo" > "$tmp" && chmod 0755 "$tmp"; }; then rm -f "$tmp"; return 1; fi
+      # -T: um gancho que seja diretório não recebe o arquivo dentro dele.
+      if ! mv -fT "$tmp" "$alvo" 2>/dev/null; then
+        rm -f "$tmp"
+        erro "$dir: não consegui trocar o gancho $alvo (é diretório ou não pode ser substituído); não toco nele"; return 1
+      fi
     fi
   done
 }
@@ -322,7 +349,7 @@ case "$cmd" in
     exit "$res"
     ;;
   map)
-    integra workspace "$NUMIH_HOME/workspace"
+    integra workspace "$NUMIH_HOME/workspace" || exit 1
     mapa="$SELF_DIR/numih-map.ts"
     [ -f "$mapa" ] || { erro "numih-map.ts não encontrado ao lado do script ($mapa)"; exit 1; }
     for f in modulos.json MODULOS.md; do
@@ -333,6 +360,8 @@ case "$cmd" in
   mod)
     nome="${1:-}"
     if ! [[ "$nome" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then erro "nome de repositório inválido: '$nome'"; exit 1; fi
+    # O GitHub não aceita nome terminado em .git (o sufixo é da URL, não do nome).
+    if [[ "${nome,,}" == *.git ]]; then erro "nome de repositório inválido: '$nome' (sem o sufixo .git)"; exit 1; fi
     sincronizar_um "$nome" "$NUMIH_HOME/mod/$nome"
     ;;
   install)
