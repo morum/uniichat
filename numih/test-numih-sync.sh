@@ -88,7 +88,9 @@ chmod 0755 "$T/shim/git"
 # `rev-parse --git-dir` é legítimo). A única outra linha aceita é a leitura
 # global do core.sshCommand que o script faz ao começar (sem -C, fora de
 # <home>). Os argumentos são separados por espaço (o git falso grava "$*"),
-# então o filtro não distingue um argumento com espaço de dois argumentos.
+# então o filtro não distingue um argumento com espaço de dois argumentos; e
+# vão até a ÚLTIMA ocorrência de " pwd=" (a que o git falso grava), para que
+# um " pwd=" nos argumentos ou no caminho de <home> não os corte antes.
 fora_de_ws_cursor() { # NUMIH_HOME [registro; padrão $T/git.log]
   awk -v h="$1" -v fim=" gitdir= worktree=" \
       -v ssh=" args=config --get core.sshCommand pwd=" -v casa="$1/" '
@@ -906,7 +908,30 @@ filtro_caso "subcomando fora da lista fechada" pega "$T" -C "$HF/workspace" "${O
 filtro_caso "git -C na própria mod/lib" pega "$T" -C "$HF/mod/lib" "${OPTS_G[@]}" rev-parse --git-dir
 filtro_caso "git -C em <home>/workspace2 (prefixo parecido)" pega "$T" -C "$HF/workspace2" "${OPTS_G[@]}" rev-parse --git-dir
 GIT_DIR="$HF/mod/lib/.git" filtro_caso "git -C workspace com GIT_DIR no ambiente" pega "$T" -C "$HF/workspace" rev-parse --git-dir
-rm -rf "$HF" "$T/git.log"
+# GIT_WORK_TREE no ambiente (mutação FW): o controle confere com o git real
+# que ele leva a árvore de trabalho a mod/lib mesmo com -C workspace.
+[ "$(GIT_WORK_TREE="$HF/mod/lib" git -C "$HF/workspace" rev-parse --show-toplevel 2>/dev/null)" = "$HF/mod/lib" ] \
+  && ok "filtro: controle, GIT_WORK_TREE chega a mod/lib" || falha "filtro: controle, GIT_WORK_TREE não chega a mod/lib"
+GIT_WORK_TREE="$HF/mod/lib" filtro_caso "git -C workspace com GIT_WORK_TREE no ambiente" pega "$T" -C "$HF/workspace" status --porcelain
+# O prefixo aceito (-C <home>/workspace) depois de outra coisa não vale: o
+# filtro o ancora no começo dos argumentos (mutações FA e FB).
+filtro_caso "-C mod/lib antes de -C workspace" pega "$T" -C "$HF/mod/lib" -C "$HF/workspace" rev-parse --git-dir
+[ "$(git --git-dir="$HF/mod/lib/.git" -C "$HF/workspace" rev-parse --absolute-git-dir 2>/dev/null)" = "$HF/mod/lib/.git" ] \
+  && ok "filtro: controle, --git-dir absoluto antes de -C workspace chega a mod/lib" || falha "filtro: controle, --git-dir absoluto antes de -C workspace não chega a mod/lib"
+filtro_caso "--git-dir de mod/lib antes de -C workspace" pega "$T" --git-dir="$HF/mod/lib/.git" -C "$HF/workspace" rev-parse --git-dir
+# git rodado em mod/lib, com -C workspace só nos argumentos do subcomando;
+# «mod/lib/.» tem o comprimento de «workspace», então um filtro que achasse
+# o prefixo em qualquer ponto e cortasse no comprimento dele cairia em
+# «rev-parse» e aceitaria a linha.
+filtro_caso "git -C mod/lib/. com -C workspace nos argumentos do subcomando" pega "$T" -C "$HF/mod/lib/." rev-parse --git-dir -C "$HF/workspace" status
+# NUMIH_HOME com « pwd=» no caminho (mutação FP): o filtro separa os
+# argumentos na ÚLTIMA ocorrência de « pwd=» (a do diretório corrente que o
+# git falso grava), então a chamada legítima continua aceita.
+HP="$T/home pwd=filtro"
+for r in workspace mod/lib; do git init -q "$HP/$r"; done
+HF="$HP" filtro_caso "NUMIH_HOME com « pwd=» no caminho, git -C workspace" passa "$T" -C "$HP/workspace" "${OPTS_G[@]}" rev-parse --git-dir
+HF="$HP" filtro_caso "NUMIH_HOME com « pwd=» no caminho, git -C mod/lib" pega "$T" -C "$HP/mod/lib" "${OPTS_G[@]}" rev-parse --git-dir
+rm -rf "$HF" "$HP" "$T/git.log"
 
 # Sinal no próprio numih-sync durante um clone lento (remoto que pendura).
 # TERM, HUP e KILL por PID matam o script na hora; o vigia (avisado pelo

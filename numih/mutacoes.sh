@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Mutações do numih-sync e do numih-map: cada uma altera UMA linha numa cópia
-# temporária de numih/ e roda o teste que deveria pegá-la. Uma mutação é
+# Mutações do numih-sync, do numih-map e do filtro estrito do próprio teste
+# (fora_de_ws_cursor, IDs FW, FA, FB e FP): cada uma altera UMA linha numa
+# cópia temporária de numih/ e roda o teste que deveria pegá-la. Uma mutação é
 # «morta» quando o teste falha; «SOBREVIVEU» quando o teste ainda passa.
 # Nada roda fora do tmp: os testes já isolam HOME, NUMIH_HOME, GH_CONFIG_DIR e
 # o config global do git.
@@ -94,6 +95,10 @@ X7h	bin/numih-sync	sync	  integra "$nome" "$dir" || return 1\n  if [ "$fetch" = 
 M1	bin/numih-sync	sync	  integra "$nome" "$dir" || return 1\n  if [ "$fetch" = 1 ]	  git -C "$NUMIH_HOME/workspace" -C ../mod/lib rev-parse --git-dir >/dev/null 2>&1 9>&- || :\n  integra "$nome" "$dir" || return 1\n  if [ "$fetch" = 1 ]
 M2	bin/numih-sync	sync	  integra "$nome" "$dir" || return 1\n  if [ "$fetch" = 1 ]	  git -C "$NUMIH_HOME/workspace" --git-dir=../mod/lib/.git rev-parse --git-dir >/dev/null 2>&1 9>&- || :\n  integra "$nome" "$dir" || return 1\n  if [ "$fetch" = 1 ]
 M3	bin/numih-sync	sync	  integra "$nome" "$dir" || return 1\n  if [ "$fetch" = 1 ]	  git -C "$NUMIH_HOME/workspace" -c core.worktree=../mod/lib status --porcelain >/dev/null 2>&1 9>&- || :\n  integra "$nome" "$dir" || return 1\n  if [ "$fetch" = 1 ]
+FW	test-numih-sync.sh	sync	substr($0, length($0) - length(fim) + 1) != fim { print; next }	$0 !~ / gitdir= worktree=[^ ]*$/ { print; next }
+FA	test-numih-sync.sh	sync	if (substr(a, 1, length(pw)) == pw) resto	if (index(a, pw)) resto
+FB	test-numih-sync.sh	sync	if (substr(a, 1, length(pw)) == pw) resto = substr(a, length(pw) + 1)	if ((q = index(a, pw))) resto = substr(a, q + length(pw))
+FP	test-numih-sync.sh	sync	j = 0; while ((k = index(substr($0, j + 1), " pwd=")) > 0) j += k	j = index($0, " pwd=")
 TABELA
 )"
 
