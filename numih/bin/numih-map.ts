@@ -93,11 +93,18 @@ export function segmentoSeguro(s: string): boolean {
   return SEGMENTO.test(s) && s !== "." && s !== ".."
 }
 
+// Nome de repositório: segmento seguro que não termina em ".git" — o GitHub
+// não aceita esse nome (o sufixo é da URL), e "x.git.git" ou ".git" sozinho
+// só aparecem em URL malformada.
+export function nomeDeRepoSeguro(s: string): boolean {
+  return segmentoSeguro(s) && !s.toLowerCase().endsWith(".git")
+}
+
 // "owner/nome" vindo do GitHub (full_name); null se não for seguro.
 export function nomeCompletoSeguro(full: unknown): [string, string] | null {
   if (typeof full !== "string") return null
   const partes = full.split("/")
-  if (partes.length !== 2 || !partes.every(segmentoSeguro)) return null
+  if (partes.length !== 2 || !segmentoSeguro(partes[0]) || !nomeDeRepoSeguro(partes[1])) return null
   return [partes[0], partes[1]]
 }
 
@@ -105,7 +112,7 @@ export function repoDaUrl(url: string): RepoRef | null {
   const m = /^(?:git@github\.com:|ssh:\/\/git@github\.com\/|https:\/\/github\.com\/)([^/]+)\/([^/]+?)(?:\.git)?\/?$/.exec(url.trim())
   if (!m) return null
   const [, owner, nome] = m
-  if (!segmentoSeguro(owner) || !segmentoSeguro(nome)) return null
+  if (!segmentoSeguro(owner) || !nomeDeRepoSeguro(nome)) return null
   return { owner, nome, url: `https://github.com/${owner}/${nome}` }
 }
 
@@ -375,7 +382,8 @@ export function gerar(workspace: string, offline?: string) {
         try { p = portaDevYaml(Bun.YAML.parse(txt)) } catch { avisos.push(`${cam}: module.dev.yaml inválido.`) }
         const diverge = p != null && p !== portaMod.portas.be_local
         m.dev_yaml = { porta_backend_local: p, diverge }
-        if (diverge) avisos.push(`${cam}: module.dev.yaml usa a porta ${p}, mas o catálogo dá be_local ${portaMod.portas.be_local} (idx ${portaMod.portas.idx}). O catálogo é a fonte da verdade.`)
+        // be_local e idx vêm do ports.yaml (texto de fora): escapados como o resto.
+        if (diverge) avisos.push(`${cam}: module.dev.yaml usa a porta ${texto(p)}, mas o catálogo dá be_local ${texto(portaMod.portas.be_local)} (idx ${texto(portaMod.portas.idx)}). O catálogo é a fonte da verdade.`)
       } else {
         m.dev_yaml = null
       }

@@ -7,6 +7,7 @@ import {
   parseGitmodules, repoDaUrl, categoria, casarPortas, entradasPortas,
   camadas, portaDevYaml, gerar, renderMarkdown,
   segmentoSeguro, nomeCompletoSeguro, caminhoGhSeguro, ghGet, texto, codigo,
+  nomeDeRepoSeguro,
 } from "./bin/numih-map"
 
 const PORTS = {
@@ -114,6 +115,69 @@ describe("numih-map", () => {
     } finally {
       process.env.PATH = PATH
       if (GHC === undefined) delete process.env.GH_CONFIG_DIR; else process.env.GH_CONFIG_DIR = GHC
+      rmSync(t, { recursive: true, force: true })
+    }
+  })
+
+  test("recusa nome de repositório «.git» ou terminado em .git", () => {
+    for (const url of [
+      "https://github.com/Numih/.git",
+      "https://github.com/Numih/.git.git",
+      "git@github.com:Numih/x.git.git",
+      "ssh://git@github.com/Numih/x.GIT.git",
+      "https://github.com/Numih/x.git.git/",
+      // sufixo em outra caixa não é removido da URL; o nome «X.Git» não existe no GitHub
+      "https://github.com/Numih/X.Git",
+    ]) expect(repoDaUrl(url)).toBeNull()
+    // o sufixo .git da URL continua aceito (e removido do nome)
+    expect(repoDaUrl("https://github.com/Numih/x.git")?.nome).toBe("x")
+    expect(repoDaUrl("https://github.com/Numih/a.gitx")?.nome).toBe("a.gitx")
+    expect(nomeDeRepoSeguro(".git")).toBe(false)
+    expect(nomeDeRepoSeguro("x.git")).toBe(false)
+    expect(nomeDeRepoSeguro("x.GIT")).toBe(false)
+    expect(nomeDeRepoSeguro("x.gitx")).toBe(true)
+    expect(nomeCompletoSeguro("Numih/x.git")).toBeNull()
+    expect(nomeCompletoSeguro("Numih/.git")).toBeNull()
+  })
+
+  test("aviso de divergência do module.dev.yaml escapa be_local e idx do catálogo", () => {
+    const t = mkdtempSync(join(tmpdir(), "numih-map-dev-"))
+    try {
+      const ws = join(t, "ws"), fx = join(t, "fx")
+      mkdirSync(ws); mkdirSync(fx)
+      const env = { ...process.env, GIT_CONFIG_GLOBAL: join(t, "gc"), GIT_CONFIG_NOSYSTEM: "1" }
+      const git = (...a: string[]) => {
+        const r = spawnSync("git", ["-C", ws, ...a], { encoding: "utf8", env })
+        if (r.status !== 0) throw new Error(r.stderr)
+      }
+      git("init", "-q", "-b", "main")
+      writeFileSync(join(ws, ".gitmodules"), [
+        '[submodule "modules/agents"]', "\tpath = modules/agents", "\turl = https://github.com/Numih/agents.git",
+        '[submodule "tools/devtools"]', "\tpath = tools/devtools", "\turl = https://github.com/Numih/devtools.git",
+      ].join("\n") + "\n")
+      const A = "a".repeat(40), D = "d".repeat(40)
+      git("add", ".gitmodules")
+      git("update-index", "--add", "--cacheinfo", `160000,${A},modules/agents`)
+      git("update-index", "--add", "--cacheinfo", `160000,${D},tools/devtools`)
+      git("-c", "user.name=t", "-c", "user.email=t@t.invalid", "commit", "-qm", "ws")
+      const fixture = (path: string, data: unknown) =>
+        writeFileSync(join(fx, path.replace(/[^A-Za-z0-9._-]+/g, "_") + ".json"), JSON.stringify(data))
+      const b64 = (s: string) => Buffer.from(s).toString("base64")
+      const hostil = {
+        modules: [{ idx: "4|5<b>x</b>", name: "agents", ports: { be_local: "<img src=x onerror=1>|8145" } }],
+      }
+      fixture(`repos/Numih/devtools/contents/infra/ports.yaml?ref=${D}`, { content: b64(JSON.stringify(hostil)) })
+      fixture("repos/Numih/agents", { full_name: "Numih/agents", archived: false })
+      fixture("repos/Numih/devtools", { full_name: "Numih/devtools", archived: false })
+      fixture(`repos/Numih/agents/contents/module.dev.yaml?ref=${A}`, { content: b64("backend:\n  graphql:\n    localPort: 8140\n") })
+      const mapa = gerar(ws, fx)
+      const aviso = mapa.avisos.find(a => a.includes("module.dev.yaml usa a porta"))!
+      expect(aviso).toBe("`modules/agents`: module.dev.yaml usa a porta 8140, mas o catálogo dá be_local \\<img src=x onerror=1>\\|8145 (idx 4\\|5\\<b>x\\</b>). O catálogo é a fonte da verdade.")
+      const md = renderMarkdown(mapa)
+      const linha = md.split("\n").find(l => l.includes("module.dev.yaml usa a porta"))!
+      expect(linha).not.toMatch(/(^|[^\\])<img/)
+      expect(linha).not.toMatch(/(^|[^\\])\|/)
+    } finally {
       rmSync(t, { recursive: true, force: true })
     }
   })
