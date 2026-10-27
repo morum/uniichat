@@ -241,6 +241,10 @@ export namespace Chat {
   // Main.start). One that fails to open throws, and the server ends
   export function open(): Chat {
     const mem = Memory.load(CHAT, () => Chat.share(chat, Tools.prompt("compact")), Owner.act_put);
+    // what the server before left running, taken as loaded: any change
+    // below (Chat.timed, a note) saves what runs now, which is nothing
+    // yet, and would lose it before Chat.resume reads it
+    const cut_work = [...mem.work];
     const tools = Tools.serve(mem, {
       push   : (agent, kind, text) => Chat.push(chat, agent, kind, text),
       note   : (text) => Chat.note(chat, text),
@@ -283,11 +287,12 @@ export namespace Chat {
     Memory.pump(mem);
     Chat.progress(chat);
     // Unii's turn cut by the stop, resumed: its end answers the threads
-    // that wait for Unii (Chat.talked)
-    const cut = mem.work.includes(TURN);
-    Chat.resume(chat, mem.work).finally(() => Chat.change(chat)).catch((err) => console.error("unii: resuming the chat: " + (err?.message ?? err)));
+    // that wait for Unii (Chat.talked). Chat.resume takes its note at
+    // once (Chat.take starts the turn: chat.busy), so Chat.orphans, which
+    // checks chat.busy and chat.wait, leaves those threads to that turn
+    Chat.resume(chat, cut_work).finally(() => Chat.change(chat)).catch((err) => console.error("unii: resuming the chat: " + (err?.message ?? err)));
     const back = Chat.back(chat);
-    Chat.orphans(chat, cut || back);
+    Chat.orphans(chat, back);
     // AGENTES.md as the server starts: an agent the server before left at
     // work, and not resumed, is said cut (after the boot, not in its way)
     setTimeout(() => Chat.agents_md(chat), 0);
