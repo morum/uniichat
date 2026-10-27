@@ -1,5 +1,29 @@
 # Fase 2 — como as regras do `cursor` chegarão aos agentes do Unii
 
+## Estado: implementado na branch `feat/numih-fase2`
+
+Decisões do usuário (P122): núcleo **inteiro** no prompt; skills do `cursor`
+em **todas** as tarefas; piloto «Outra» (ver `PILOTO-mcp-agentes.md`).
+
+| Item do plano | Como ficou |
+|---|---|
+| Tarefa Numih | O Unii marca no `spawn`: `numih: true`. A marca fica na nota do agente («subagent … with the Numih rules, labeled …»), então sobrevive a um reinício. |
+| Núcleo no prompt | `Numih.ts` lê, a cada chamada, `cursor/dist/managed/CLAUDE.md` da cópia de referência (`numih_home`, padrão `~/.unii/numih`) e o põe **inteiro** no prompt do sistema, depois do texto do Unii e antes das instruções do usuário. Vale para qualquer fornecedor: o Claude Code recebe o texto como `systemPrompt`; o Cursor CLI, como a regra `alwaysApply` `.cursor/rules/unii.mdc`. |
+| Índice das regras por caminho | Gerado na hora a partir de `cursor/dist/claude-plugin/rules-global` (25 regras; o `_numih-nucleo.md`, que repete o núcleo, fica fora): nome, título, padrões de caminho e arquivo. A instrução manda ler a regra inteira antes de criar ou editar arquivo que case com o padrão; a `25-isolamento-de-testes` vale para todo teste. |
+| Teto | `numih_rules_max` (padrão 131072 bytes). Acima dele o pacote **não** é cortado: nada é injetado e um aviso diz o tamanho, o teto e quais arquivos ler por inteiro. |
+| Pacote ausente | Aviso no lugar: as regras faltam, o agente não faz commit, push nem PR em repositório da Numih e relata ao Unii (que roda `numih-sync sync`). |
+| Log | Cada chamada registra «unii: regras da Numih para <agente>: N bytes injetados (cursor <commit>)», ou por que não. |
+| Skills | `Machine.skills` inclui `cursor/dist/claude-plugin/skills` (49 skills; `claude-mem-memory` fica fora, P118) em **todas** as tarefas, depois das do usuário e do projeto (nome repetido: vale o do usuário). Cinco delas têm cabeçalho que o YAML estrito recusa («Numih: sobe a stack…»); o cabeçalho recusado agora é lido linha a linha. |
+
+Não feito nesta fase: o script `numih-regras` (o pacote é montado na hora,
+sem arquivo intermediário); as regras «promovidas» além do núcleo
+(`25-isolamento-de-testes` só é citada no índice); o gate
+`numih-guard-scan.mjs` antes do push (fase 3); `.cursor/rules` do `cursor`
+materializado no worktree da tarefa (o Cursor CLI já recebe tudo pela
+`unii.mdc`); o teste ponta a ponta com um agente real (fase 5 ou piloto).
+
+## Plano original
+
 Plano, sem código nesta fase. Fonte: `~/.unii/numih/cursor` na `main`
 (`76183bd`). Decisões do usuário já tomadas (P118): a regra
 `10-claude-mem-memory` não vale para o Unii; E2E local no DevTools em Docker

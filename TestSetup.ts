@@ -22,5 +22,13 @@ if (!was.startsWith("/tmp/")) {
 if (!(process.env.UNII_AGENTES ?? "").startsWith("/tmp/")) {
   delete process.env.UNII_AGENTES;
 }
+// nor reads the real Numih reference copies (Numih.ts, config numih_home;
+// Machine.numih_skills, $NUMIH_HOME): both point into the run's dir,
+// where a test makes its own (one in /tmp already is kept)
+for (const v of ["UNII_NUMIH_HOME", "NUMIH_HOME"]) {
+  if (!(process.env[v] ?? "").startsWith("/tmp/")) {
+    process.env[v] = process.env.UNII_DIR + "/numih";
+  }
+}
 // a preload's afterAll runs once, after every file's tests
 afterAll(() => fs.rmSync(process.env.UNII_DIR!, { recursive: true, force: true }));

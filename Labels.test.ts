@@ -112,7 +112,7 @@ test("a restart reads the labels back from the notes; an agent taken back keeps 
   const other = { ...tools, agents: new Map(), labels: again };
   expect(Tools.agent(other, A)!.label).toBe("num-3182-verificador");
   expect(Tools.agent(other, C)!.label).toBeNull();
-  expect(Tools.agent(other, C)!.role).toEqual({ effort: null, model: null });
+  expect(Tools.agent(other, C)!.role).toEqual({ effort: null, model: null, numih: false });
 });
 
 test("old notes (before labels) read as before", () => {
@@ -125,7 +125,7 @@ test("old notes (before labels) read as before", () => {
   const other = { ...tools, agents: new Map(), labels: again };
   const old = Tools.agent(other, "OldOwl")!;
   expect(old.label).toBeNull();
-  expect(old.role).toEqual({ effort: "high", model: "opus-5.5" });
+  expect(old.role).toEqual({ effort: "high", model: "opus-5.5", numih: false });
 });
 
 test("a report and a [Name] show the label, the name after it; unknown names as before", () => {
@@ -222,7 +222,7 @@ test("a note edited by hand: its label cleaned on reading (escapes, U+2028), cut
   const sep = Tools.agent(other, "SepSeal")!;
   expect(sep).not.toBeNull();
   expect(sep.label).toBe("lin ha fim");
-  expect(sep.role).toEqual({ effort: "high", model: "opus-5.5" });
+  expect(sep.role).toEqual({ effort: "high", model: "opus-5.5", numih: false });
   expect(Tools.agent(other, "LongLynx")!.label).toBe("y".repeat(60));
   expect(Tools.agent(other, "EscEel")!.label).toBe(again.get("EscEel"));
   // the frame of a report, even from a state not cleaned (an older server)

@@ -84,6 +84,12 @@ export const VIDEO_LIMIT = 300_000;
 // the lines kept around each change in a diff
 const CONTEXT = 3;
 
+// the Numih cursor's skills, under the reference copies' dir
+// (Machine.numih_skills), and those left out: claude-mem-memory, since
+// Unii keeps its own memory (P118)
+const NUMIH_SKILLS     = "/cursor/dist/claude-plugin/skills";
+const NUMIH_SKILLS_OFF = ["claude-mem-memory"];
+
 export const STR = { type: "string" };
 export const INT = { type: "integer" };
 
@@ -607,11 +613,13 @@ export namespace Machine {
   // ------
 
   // Agent Skills (<name>/SKILL.md) in ~/.agents/skills, then in
-  // <dir>/.agents/skills: a name found twice keeps the user's; one that
-  // can't be read or lacks a valid name and description is left out
-  export function skills(home: string, dir: string): Skill[] {
+  // <dir>/.agents/skills, then the Numih cursor's (numih_skills: in
+  // every task, as the user decided in P122; claude-mem-memory left out,
+  // P118): a name found twice keeps the first; one that can't be read or
+  // lacks a valid name and description is left out
+  export function skills(home: string, dir: string, numih: string = Machine.numih_skills(home)): Skill[] {
     const found = new Map<string, Skill>();
-    for (const root of [home + "/.agents/skills", dir + "/.agents/skills"]) {
+    for (const root of [home + "/.agents/skills", dir + "/.agents/skills", numih]) {
       let names: string[] = [];
       try {
         names = fs.readdirSync(root).sort();
@@ -622,13 +630,23 @@ export namespace Machine {
         try {
           head = skill_head(file);
         } catch {}
-        const ok = typeof head?.name === "string" && /^[a-z0-9-]{1,64}$/.test(head.name) && typeof head.description === "string" && head.description.trim() !== "";
+        const off = root === numih && (NUMIH_SKILLS_OFF.includes(name) || NUMIH_SKILLS_OFF.includes(head?.name));
+        const ok = !off && typeof head?.name === "string" && /^[a-z0-9-]{1,64}$/.test(head.name) && typeof head.description === "string" && head.description.trim() !== "";
         if (ok && !found.has(head.name)) {
           found.set(head.name, { name: head.name, description: head.description.trim().slice(0, 1024), dir: path.dirname(file) });
         }
       }
     }
     return [...found.values()];
+  }
+
+  // the skills of the Numih cursor's reference copy (numih-sync's; the
+  // server's config numih_home is not read here: $NUMIH_HOME if
+  // absolute, as numih-sync reads it, else ~/.unii/numih)
+  export function numih_skills(home: string, env: { NUMIH_HOME?: string } = process.env): string {
+    const set = env.NUMIH_HOME ?? "";
+    const root = set.startsWith("/") ? set : home + "/.unii/numih";
+    return root.replace(/\/+$/, "") + NUMIH_SKILLS;
   }
 
   export function skill(home: string, dir: string, name: string): Out {
@@ -672,7 +690,30 @@ function skill_head(file: string): any {
   fs.closeSync(fd);
   const text = buf.toString("utf8", 0, size).replace(/^\uFEFF/, "");
   const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?(\n|$)/);
-  return m === null ? null : Bun.YAML.parse(m[1]);
+  if (m === null) {
+    return null;
+  }
+  try {
+    return Bun.YAML.parse(m[1]);
+  } catch {
+    return skill_head_lines(m[1]);
+  }
+}
+
+// a frontmatter strict YAML refuses, read line by line: each top-level
+// "key: value" on one line, the value as written (a ": " inside it, as
+// in "Numih: sobe a stack", kept), quotes around it gone; a key's first
+// line wins. Five of the Numih cursor's skills need it
+function skill_head_lines(head: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of head.split(/\r?\n/)) {
+    const kv = /^([A-Za-z][\w-]*):[ \t]+(\S.*)$/.exec(line);
+    if (kv !== null && !(kv[1] in out)) {
+      const v = kv[2].trim();
+      out[kv[1]] = /^(["']).*\1$/.test(v) ? v.slice(1, -1) : v;
+    }
+  }
+  return out;
 }
 
 // Diff

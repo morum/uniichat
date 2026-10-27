@@ -155,6 +155,19 @@ export const CURSOR_SANDBOX = config_get("cursor_sandbox", "bwrap") === "off" ? 
 // at most 300); not a number above 10: the default
 export const CURSOR_IDLE = ((n) => (Number.isFinite(n) && n > 10 ? n : 600))(Number(config_get("cursor_idle", "600")));
 
+// the Numih rules a subagent of a Numih task gets (Numih.ts): where
+// numih-sync keeps the reference copies (numih/README.md), config
+// numih_home (~/.unii/numih by default); the most bytes they may take
+// of its system prompt, config numih_rules_max (131072 by default; not a
+// whole number above 0: the default). Read at the start
+export const NUMIH_HOME      = config_path(config_get("numih_home", "~/.unii/numih"));
+export const NUMIH_RULES_MAX = numih_max(config_get("numih_rules_max", "131072"));
+
+export function numih_max(x: string): number {
+  const n = Number(String(x).trim());
+  return Number.isSafeInteger(n) && n > 0 ? n : 131072; // "" and " " are 0
+}
+
 // the keys the environment gave (removed from it), and every key as used:
 // the environment's, else keys.json's
 const ENV_KEYS: Record<string, string> = Object.fromEntries(Object.entries(VARS).map(([name, v]) => [name, config_key(v)]));
