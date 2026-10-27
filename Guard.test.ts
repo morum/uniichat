@@ -7,6 +7,8 @@
 // serve on another port) goes through.
 
 import { expect, test } from "bun:test";
+import { homedir, userInfo } from "node:os";
+import { join } from "node:path";
 import * as Guard from "./Guard.ts";
 
 const NO = [
@@ -178,6 +180,61 @@ const NO = [
   "git push origin :",
   "git push origin +HEAD:",
   "echo $(echo ')'; pkill bun)",
+  // what FoggyFox's mutations left alive (P109): a tab between words, a
+  // refspec's last ":", time and eval running what follows
+  "pkill\tbun",
+  "git\tpush origin main",
+  "git push origin a:b:main",
+  "time pkill bun",
+  "time -p pkill -f Cli.ts",
+  "eval 'pkill bun'",
+  "eval \"pkill $x\"",
+  // gh's options before its command's verb (FoggyFox, P109)
+  "gh pr -R o/r merge 5",
+  "gh pr --repo o/r merge 5",
+  "gh pr --repo=o/r merge 5",
+  "/usr/bin/gh pr -R o/r merge 5 --admin",
+  "bash -c 'gh pr -R o/r merge 5'",
+  "tofu destroy",
+  "terragrunt run-all apply",
+  // a release, main changed by the API, a blind kill (FoggyFox, P109)
+  "gh release create v1.0.0",
+  "gh release -R o/r create v1 --generate-notes",
+  "gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=abc",
+  "gh api -XPATCH repos/o/r/git/refs/heads/master -F force=true",
+  "gh api --method=PUT repos/o/r/git/refs/heads/main -f sha=abc",
+  "gh api --method DELETE repos/o/r/git/refs/heads/main",
+  "gh api -XDELETE repos/o/r/git/refs/heads/main",
+  "gh api repos/o/r/git/refs -f ref=refs/heads/main -f sha=abc",
+  "gh api -X PATCH \"repos/o/r/git/refs/heads/$B\" -f sha=abc",
+  "gh api -X PUT repos/o/r/contents/a.txt -f message=m -f content=eA== -f branch=main",
+  "gh api --method PUT repos/o/r/contents/a.txt -f message=m -f content=eA==",
+  "gh api -X DELETE 'repos/o/r/contents/a.txt?branch=master' -f message=m -f sha=abc",
+  "gh api -X put repos/o/r/contents/a.txt --field branch=main -f message=m",
+  "gh api -X PUT repos/o/r/contents/a.txt -f message=m -f branch=$B",
+  "gh api -X PUT 'repos/o/r/contents/a.txt?branch=feat/x' -f message=m",
+  "gh api repos/o/r/git/refs -f ref=refs/heads/$B -f sha=abc",
+  "kill --signal=STOP 1234",
+  "kill -sSTOP 1234",
+  "kill -n19 1234",
+  "kill -STOP 1234",
+  "kill -s STOP 1234",
+  "kill -SIGSTOP 1234",
+  "kill -sigstop 1234",
+  "kill -19 1234",
+  "kill -n 19 1234",
+  "kill --signal STOP 1234",
+  "/bin/kill -STOP 1234",
+  "sudo kill -STOP 1234",
+  "builtin kill -STOP 1234",
+  "pgrep -f x | xargs kill -STOP",
+  "bash -c 'kill -STOP 1234'",
+  "kill -9 -1",
+  "kill -- -1",
+  "kill -KILL -1",
+  "kill $PPID",
+  "kill -9 $PPID",
+  "kill \"${PPID}\"",
 ];
 
 const YES = [
@@ -241,6 +298,30 @@ const YES = [
   "cat <<'EOF'\ndon't\nEOF",
   "grep -n 'main' README.md && git push origin feat/x",
   "man pkill",
+  // a plan whose file is named apply; gh read, or written off main; a
+  // kill with a target (FoggyFox, P109)
+  "terraform plan -out=apply.tfplan",
+  "terraform -chdir=hom plan -out=apply.tfplan",
+  "terraform show apply.tfplan",
+  "gh pr -R o/r view 5",
+  "gh pr --repo o/r checks 5",
+  "gh pr list --search merge",
+  "gh release view v1.0.0",
+  "gh release list -R o/r",
+  "gh api repos/o/r/git/refs/heads/main",
+  "gh api repos/o/r/git/refs/heads/main --jq .object.sha",
+  "gh api -X PATCH repos/o/r/git/refs/heads/feat/x -f sha=abc",
+  "gh api -X PUT repos/o/r/contents/a.txt -f message=m -f content=eA== -f branch=feat/x",
+  "gh api repos/o/r/contents/a.txt",
+  "gh api -X PUT repos/o/r/contents/a.txt --raw-field=branch=feat/x -f message=m",
+  "gh api -X POST repos/o/r/git/refs -f ref=refs/heads/feat/x -f sha=abc",
+  "kill 12345",
+  "kill -9 12345",
+  "kill -TERM 12345",
+  "kill -CONT 12345",
+  "kill -l",
+  "echo 'kill -STOP 1'",
+  "grep -n 'kill -9 -1' README.md",
 ];
 
 test("a command is read as bash reads it: operators, quotes, backslashes, comments", () => {
@@ -350,6 +431,61 @@ test("the refusal names what it bans", () => {
   expect(Guard.forbidden("pkill bun")).toContain("reiniciar ou parar o serve");
   expect(Guard.forbidden("git push origin #main")).toContain("sem dizer para qual ramo");
   expect(Guard.forbidden("git push origin feat/x >&- main")).toContain("push em main");
+});
+
+// the serve's command lines as it runs, not a fixed /home/user (FoggyFox
+// M1, P109): what the serve and its device run on morum
+const REAL = Guard.serve_lines(["/home/morum/.local/share/mise/installs/bun/1.4.2/bin/bun"], ["/home/morum/repository/uniichat/Cli.ts"]);
+
+test("pkill -f is matched against the serve's real command lines", () => {
+  expect(REAL).toContain("/home/morum/.local/share/mise/installs/bun/1.4.2/bin/bun /home/morum/repository/uniichat/Cli.ts device");
+  expect(REAL).toContain("/home/morum/.local/share/mise/installs/bun/1.4.2/bin/bun /home/morum/repository/uniichat/Cli.ts serve");
+  for (const c of ["pkill -f '/home/morum/repository/uniichat/Cli.ts device'", "pkill -f \"/home/morum/repository/uniichat/Cli.ts device\"", "pkill -f 'morum.*device'",
+    "pkill -f 'morum.*serve'", "pkill -f 'uniichat/Cli.ts'", "pkill -f 'mise/installs/bun'", "pgrep -f 'morum.*device' | xargs kill", "pkill -f -x '.*Cli.ts device'"]) {
+    const no = Guard.forbidden(c, REAL);
+    expect(no === null ? "passou: " + c : no).toContain("reiniciar ou parar o serve");
+  }
+  for (const c of ["pkill -f 'bun test'", "pkill -f 'morum.*bun test'", "pkill -f 'Cli.ts serve --port 8793'", "pkill -f '/home/other/x'", "pkill -f '^/home/user/'"]) {
+    expect([c, Guard.forbidden(c, REAL)]).toEqual([c, null]);
+  }
+  // another user's serve: its lines are the ones read, not this one's
+  const ana = Guard.serve_lines(["/home/ana/.bun/bin/bun"], ["/home/ana/repository/uniichat/Cli.ts"]);
+  expect(Guard.forbidden("pkill -f 'ana.*device'", ana)).toContain("reiniciar ou parar o serve");
+  expect(Guard.forbidden("pkill -f 'ana.*device'", REAL)).toBeNull();
+});
+
+test("a serve's lines come from where it runs: its bun, its dir, its home, its user", () => {
+  const at = { bun: "/opt/b/bun", dir: "/srv/u", home: "/tmp/h", user: "ana", argv: ["/opt/b/bun", "/srv/u/Cli.ts", "x"] };
+  const l = Guard.here(at);
+  for (const x of ["/opt/b/bun /srv/u/Cli.ts device", "/opt/b/bun /srv/u/Cli.ts serve", "bun /home/ana/repository/uniichat/Cli.ts device", "/home/ana/.bun/bin/bun Cli.ts serve",
+    "/tmp/h/.bun/bin/bun /tmp/h/.unii/uniichat/Cli.ts device", "/usr/bin/bun /home/user/repository/uniichat/Cli.ts serve", "bun run Cli.ts serve --port 8788"]) {
+    expect(l).toContain(x);
+  }
+  expect(l).not.toContain("/opt/b/bun /srv/u/Cli.ts x");
+  expect(Guard.here({ ...at, argv: ["/x/bun", "/y/Cli.ts", "device", "--z"] })).toContain("/x/bun /y/Cli.ts device --z");
+  expect(Guard.here({ ...at, argv: ["/x/bun", "/y/Cli.ts", "serve"] })).toContain("/x/bun /y/Cli.ts serve");
+});
+
+// by default, this very serve's: its bun, the Cli.ts beside Guard.ts, its
+// user's home (HOME may be another, as in a test)
+test("by default the lines are this serve's, wherever it lives", () => {
+  const cli = join(import.meta.dir, "Cli.ts");
+  for (const c of ["pkill -f '" + cli + " device'", "pkill -f '" + cli + " serve'", "pkill -f '" + userInfo().username + ".*device'", "pkill -f '" + homedir() + "/repository/uniichat/Cli.ts serve'",
+    "pkill -f '/home/" + userInfo().username + "/repository/uniichat/Cli.ts device'", "pkill -f '" + process.execPath + " .*device'"]) {
+    const no = Guard.forbidden(c);
+    expect(no === null ? "passou: " + c : no).toContain("reiniciar ou parar o serve");
+  }
+  expect(Guard.SERVE_LINES).toContain(process.execPath + " " + cli + " device");
+});
+
+test("gh and terraform are read by their words, past their options", () => {
+  expect(Guard.calls(["gh", "pr", "-R", "o/r", "merge", "5"], new Set(["gh"]), new Set(["-R"]))).toEqual([{ pos: ["pr", "merge", "5"], opts: [["-R", "o/r"]] }]);
+  expect(Guard.calls(["/usr/bin/terraform", "-chdir=x", "plan", "-out=apply"], new Set(["terraform"]), new Set())).toEqual([{ pos: ["plan"], opts: [["-chdir=x"], ["-out=apply"]] }]);
+  expect(Guard.forbidden("gh pr -R o/r merge 5")).toContain("mesclar um pull request");
+  expect(Guard.forbidden("gh release create v1")).toContain("criar um release");
+  expect(Guard.forbidden("gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=x")).toContain("alterar main pela API do GitHub");
+  expect(Guard.forbidden("kill -STOP 1")).toContain("kill -STOP");
+  expect(Guard.forbidden("kill -9 -1")).toContain("congelar ou matar processos");
 });
 
 test("a command's words and what it runs, past sudo, env, timeout, if", () => {

@@ -53,6 +53,25 @@
 // the agent works around by writing it another way, than a push to main
 // let through. pkill and killall are read only where they run (as a
 // command, or in a script it runs), so grep -r 'pkill bun' . goes.
+//
+// What pkill -f is matched against is the serve's command line and its
+// device's as this very serve runs (the bun running it, the Cli.ts next
+// to this file, its home and its user), with some common layouts; not a
+// fixed path. So pkill -f '/home/morum/repository/uniichat/Cli.ts device'
+// and pkill -f 'morum.*device' are refused whoever runs the serve, and
+// wherever (FoggyFox M1, P109).
+//
+// It reads gh and terraform by their words, past their options: gh pr -R
+// o/r merge 5 is a merge, and terraform plan -out=apply.tfplan is a plan,
+// not an apply. It also refuses (FoggyFox, P109): gh release create; gh
+// api changing main by git/refs (PATCH, PUT, POST, DELETE on heads/main)
+// or by contents (PUT, DELETE with branch=main, or no branch: the default
+// one); kill -STOP, which froze the serve, in any of its spellings (-s
+// STOP, -SIGSTOP, -19, -n 19); kill -1 as the target (kill -9 -1, every
+// process); and kill $PPID (the device that runs the agent's shell).
+
+import { homedir, userInfo } from "node:os";
+import { join } from "node:path";
 
 // Types
 // =====
@@ -73,7 +92,8 @@ type Seen = { cmd: Simple; loose: boolean; deep?: boolean };
 // a ban: what it is, as the agent is told, and what a command doing it
 // looks like: one simple command, with its words joined by spaces (line);
 // whole: all the commands met, for what spans them (pgrep x | xargs kill)
-type Ban = { what: string; test: (c: Simple, line: string) => boolean; whole?: (seen: Seen[]) => boolean };
+// (and, for pkill -f, the serve's command lines: Guard.SERVE_LINES)
+type Ban = { what: string; test: (c: Simple, line: string) => boolean; whole?: (seen: Seen[], lines: string[]) => boolean };
 
 // a command's first word, after what only runs it (sudo, env, nohup...),
 // and the words after it
@@ -94,6 +114,12 @@ const GIT_VALUED = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace
 const PUSH_VALUED = new Set(["-o", "--push-option", "--repo", "--exec", "--receive-pack"]);
 // a refspec's destination naming main or master
 const MAIN = /^(?:refs\/heads\/)?(?:main|master)$/;
+// gh's options, its commands' and its api's, that take the next word as
+// their value (gh pr -R o/r merge 5, gh api -X PATCH path -f sha=x)
+const GH_VALUED = new Set(["-R", "--repo", "-X", "--method", "-f", "--raw-field", "-F", "--field", "-H", "--header", "-q", "--jq",
+  "-t", "--template", "--input", "--hostname", "-p", "--preview", "--cache", "-S", "--search", "--title", "-b", "--body"]);
+// the infrastructure tools whose apply, destroy or import is a deploy
+const IAC = new Set(["terraform", "tofu", "terragrunt"]);
 
 // what only runs the command after it, and its options that take a value;
 // and the shell's words that start a command (if pkill bun; then ...)
@@ -101,7 +127,7 @@ const RUNNERS: Record<string, string[]> = {
   sudo: ["-u", "-g", "-h", "-p", "-C", "-U", "-r", "-t", "-D"], doas: ["-u", "-C"], exec: ["-a"], command: [], nohup: [], time: ["-f", "-o"],
   nice: ["-n"], ionice: ["-c", "-n", "-p"], env: ["-u", "-C", "-S"], xargs: ["-n", "-I", "-P", "-L", "-d", "-E", "-s", "-a"], setsid: [],
   stdbuf: ["-i", "-o", "-e"], timeout: ["-s", "-k"], chronic: [], "!": [], then: [], do: [], else: [], if: [], elif: [], while: [], until: [],
-  coproc: [], "{": [],
+  coproc: [], "{": [], builtin: [],
 };
 // shells that run a script given with -c, and the like
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish", "su"]);
@@ -115,22 +141,57 @@ const BRACES = 4096;
 
 // what a process of the serve looks like to pkill and its kin: its name
 // (the program's: bun) and its command lines (pkill -f), the serve's and
-// its device's, this very serve's among them when it is one
+// its device's (Guard header)
 const SERVE_NAMES = ["bun"];
-const SERVE_LINES = [
-  "bun Cli.ts serve",
-  "bun run Cli.ts serve --port 8788",
-  "bun Cli.ts device",
-  "/home/user/.local/share/mise/installs/bun/1.4.2/bin/bun /home/user/repository/uniichat/Cli.ts serve",
-  "/home/user/.local/share/mise/installs/bun/1.4.2/bin/bun /home/user/repository/uniichat/Cli.ts device",
-  "/usr/bin/bun /home/user/.unii/uniichat/Cli.ts serve",
-  ...(process.argv.includes("serve") ? [process.argv.join(" ")] : []),
-];
+const MODES = ["serve", "device", "serve --port 8788"];
+
+// the command lines of the serve and its device run by each bun with each
+// Cli.ts: "<bun> <cli> serve", "<bun> <cli> device"...
+export function serve_lines(buns: string[], clis: string[]): string[] {
+  const out = new Set<string>();
+  for (const b of buns) {
+    for (const c of clis) {
+      for (const m of MODES) {
+        out.add(b + " " + c + " " + m);
+      }
+    }
+  }
+  return [...out];
+}
+
+// where a serve runs: the bun running it, the dir of its Cli.ts, its HOME,
+// its user's name and its argv
+export type Here = { bun: string; dir: string; home: string; user: string; argv: string[] };
+
+// a serve's command lines: run by its bun, with the Cli.ts in its dir,
+// under its home and its user's (HOME may be another), and the common
+// layouts; its own argv when it is the serve or the device
+export function here(at: Here): string[] {
+  const homes = [...new Set([at.home, "/home/" + at.user, "/home/user", "/root"])];
+  const buns = ["bun", "bun run", "/usr/bin/bun", "/usr/local/bin/bun", at.bun,
+    ...homes.flatMap((h) => [h + "/.local/share/mise/installs/bun/" + Bun.version + "/bin/bun", h + "/.bun/bin/bun"])];
+  const clis = ["Cli.ts", join(at.dir, "Cli.ts"), ...homes.flatMap((h) => [h + "/repository/uniichat/Cli.ts", h + "/.unii/uniichat/Cli.ts"])];
+  const own = at.argv.includes("serve") || at.argv.includes("device") ? [at.argv.join(" ")] : [];
+  return [...serve_lines(buns, clis), ...own];
+}
+
+// this process's user's name, from the passwd file (not HOME)
+function user_name(): string {
+  try {
+    return userInfo().username;
+  } catch {
+    return "user";
+  }
+}
+
+// this very serve's command lines (Guard.here)
+export const SERVE_LINES = here({ bun: process.execPath, dir: import.meta.dir, home: homedir(), user: user_name(), argv: process.argv });
 
 export const BANS: Ban[] = [
   {
     what: "mesclar um pull request (merge)",
-    test: (_, p) => new RegExp(W + "gh\\s+pr\\s+merge" + E).test(p)
+    test: (c, p) => new RegExp(W + "gh\\s+pr\\s+merge" + E).test(p)
+      || gh(c.words).some((g) => g.pos[0] === "pr" && g.pos[1] === "merge")
       || new RegExp(W + "gh\\s+api\\b[^\\n]*pulls/\\d+/merge" + E).test(p)
       || /pulls\/\d+\/merge(?![\w-])/.test(p) && /(?<![A-Za-z])PUT(?![A-Za-z])|-X\s*put\b|--(?:request|method)[\s=]+put\b/i.test(p)
       || /\bmergePullRequest\b|\benablePullRequestAutoMerge\b/.test(p),
@@ -152,15 +213,28 @@ export const BANS: Ban[] = [
     test: (_, p) => new RegExp(W + "systemctl\\b[^\\n]*\\b(?:restart|stop|start|kill|reload|try-restart|reload-or-restart)\\b[^\\n]*\\bunii").test(p)
       || new RegExp(W + "unii-restart" + E).test(p)
       || /\bserver\.pid\b/.test(p) && new RegExp(W + "kill" + E).test(p),
-    whole: (seen) => {
+    whole: (seen, lines) => {
       const run = seen.filter((s) => !s.loose).map((s) => command_of(s.cmd.words)).filter((c) => c !== null);
-      return run.some((c) => (c.name === "pkill" || c.name === "killall") && targets(c))
-        || run.some((c) => c.name === "kill") && run.some((c) => (c.name === "pgrep" || c.name === "pidof") && targets(c));
+      return run.some((c) => (c.name === "pkill" || c.name === "killall") && targets(c, lines))
+        || run.some((c) => c.name === "kill") && run.some((c) => (c.name === "pgrep" || c.name === "pidof") && targets(c, lines));
     },
   },
   {
+    what: "congelar ou matar processos sem alvo certo (kill -STOP, kill -1, kill $PPID), o que alcança o serve e o device",
+    test: () => false,
+    whole: (seen) => seen.filter((s) => !s.loose).map((s) => command_of(s.cmd.words)).some((c) => c !== null && blind(c)),
+  },
+  {
+    what: "criar um release (gh release create; um release é ordem do usuário)",
+    test: (c) => gh(c.words).some((g) => g.pos[0] === "release" && g.pos[1] === "create"),
+  },
+  {
+    what: "alterar main pela API do GitHub (gh api em git/refs ou contents)",
+    test: (c) => gh(c.words).some((g) => g.pos[0] === "api" && api_main(g)),
+  },
+  {
     what: "fazer deploy ou aplicar infraestrutura",
-    test: (_, p) => new RegExp(W + "(?:terraform|tofu|terragrunt)\\b[^\\n]*\\b(?:apply|destroy|import)" + E).test(p)
+    test: (c, p) => calls(c.words, IAC, new Set()).some((t) => t.pos.some((w) => w === "apply" || w === "destroy" || w === "import"))
       || new RegExp(W + "gcloud\\b[^\\n]*\\bdeploy" + E).test(p)
       || new RegExp(W + "gcloud\\s+run\\s+(?:services|jobs)\\s+(?:update|replace|execute)" + E).test(p)
       || new RegExp(W + "kubectl\\b[^\\n]*\\b(?:apply|rollout|set\\s+image|delete|scale|patch|replace)" + E).test(p)
@@ -739,7 +813,7 @@ function env_split(ws: string[]): string[] {
 // whether a pattern given to pkill, pgrep, killall -r reaches the serve;
 // one that can't be read (a variable, a command's output, not a regular
 // expression) is taken to
-function hits(pattern: string, full: boolean, exact: boolean, nocase: boolean): boolean {
+function hits(pattern: string, full: boolean, exact: boolean, nocase: boolean, lines: string[]): boolean {
   if (/\$[({\w]|`/.test(pattern)) {
     return true;
   }
@@ -749,13 +823,13 @@ function hits(pattern: string, full: boolean, exact: boolean, nocase: boolean): 
   } catch {
     return true;
   }
-  return (full ? SERVE_LINES : SERVE_NAMES).some((t) => re.test(t));
+  return (full ? lines : SERVE_NAMES).some((t) => re.test(t));
 }
 
 // whether pkill, pgrep or pidof, as called, reaches the serve (pkill bun,
 // pkill -f Cli.ts, pkill -u morum; not pkill -f 'bun test'), or killall
 // (killall bun); its words come from Guard.lex, redirections out
-function targets(cmd: Cmd): boolean {
+function targets(cmd: Cmd, lines: string[]): boolean {
   const opts: string[] = [];
   const pos: string[] = [];
   const valued = cmd.name === "killall"
@@ -790,7 +864,7 @@ function targets(cmd: Cmd): boolean {
     if (pos.length === 0) {
       return opts.some((o) => o === "-u" || o === "--user");
     }
-    return pos.some((p) => regex ? hits(p, false, false, nocase) : /\$|`/.test(p) || SERVE_NAMES.some((n) => nocase ? n.toLowerCase() === p.toLowerCase() : n === p));
+    return pos.some((p) => regex ? hits(p, false, false, nocase, lines) : /\$|`/.test(p) || SERVE_NAMES.some((n) => nocase ? n.toLowerCase() === p.toLowerCase() : n === p));
   }
   // pkill, pgrep: -v (--inverse) picks every process the pattern misses;
   // no pattern, only -u and the like: every process of theirs
@@ -801,7 +875,99 @@ function targets(cmd: Cmd): boolean {
   if (pattern === undefined) {
     return pidfile < 0;
   }
-  return hits(pattern, has("-f", "--full"), has("-x", "--exact"), has("-i", "--ignore-case"));
+  return hits(pattern, has("-f", "--full"), has("-x", "--exact"), has("-i", "--ignore-case"), lines);
+}
+
+// a program's calls in a simple command's words: each word naming one of
+// them (terraform, /usr/bin/gh), wherever it stands, with the words after
+// it, its options (with the values of those in valued) apart from the
+// rest (pos): gh pr -R o/r merge 5 is pos pr, merge, 5
+export function calls(ws: string[], names: Set<string>, valued: Set<string>): { pos: string[]; opts: string[][] }[] {
+  const out: { pos: string[]; opts: string[][] }[] = [];
+  for (let k = 0; k < ws.length; k++) {
+    const w = ws[k] ?? "";
+    if (!names.has(w.slice(w.lastIndexOf("/") + 1))) {
+      continue;
+    }
+    const pos: string[] = [];
+    const opts: string[][] = [];
+    for (let j = k + 1; j < ws.length; j++) {
+      const a = ws[j] ?? "";
+      if (a.startsWith("-") && a !== "-" && a !== "--") {
+        if (valued.has(a)) {
+          opts.push([a, ws[j + 1] ?? ""]);
+          j += 1;
+        } else {
+          opts.push([a]);
+        }
+      } else if (a !== "--") {
+        pos.push(a);
+      }
+    }
+    out.push({ pos, opts });
+  }
+  return out;
+}
+
+// gh's calls (Guard.calls)
+function gh(ws: string[]): { pos: string[]; opts: string[][] }[] {
+  return calls(ws, new Set(["gh"]), GH_VALUED);
+}
+
+// whether a gh api call changes main: a git/refs write naming heads/main
+// or master (in its path, or as its ref field), or one the serve can't
+// read; a contents write (PUT, DELETE) on main or master, or naming no
+// branch in its fields (the default one), or one the serve can't read
+function api_main(g: { pos: string[]; opts: string[][] }): boolean {
+  const path = g.pos[1] ?? "";
+  const fields = g.opts.filter((o) => ["-f", "-F", "--field", "--raw-field"].includes(o[0] ?? "")).map((o) => o[1] ?? "")
+    .concat(g.opts.map((o) => o[0] ?? "").filter((o) => /^--(?:raw-)?field=/.test(o)).map((o) => o.replace(/^--(?:raw-)?field=/, "")));
+  const set = g.opts.map((o) => o[0] === "-X" || o[0] === "--method" ? o[1] ?? "" : /^-X.|^--method=/.test(o[0] ?? "") ? (o[0] ?? "").replace(/^-X|^--method=/, "") : null)
+    .filter((m) => m !== null);
+  const method = (set.at(-1) ?? (fields.length > 0 ? "POST" : "GET")).toUpperCase();
+  if (method === "GET" || method === "HEAD") {
+    return false;
+  }
+  const main = (b: string) => /^(?:refs\/heads\/)?(?:main|master)$/.test(b) || /[$`*]/.test(b);
+  if (/(?:^|\/)git\/refs(?:\/|$|\?)/.test(path)) {
+    const head = /git\/refs\/heads\/([^?]+)/.exec(path)?.[1];
+    const ref = fields.find((f) => f.startsWith("ref="))?.slice(4);
+    return head !== undefined && main(head) || ref !== undefined && main(ref) || /[$`]/.test(path);
+  }
+  if (/(?:^|\/)contents(?:\/|$|\?)/.test(path) && (method === "PUT" || method === "DELETE")) {
+    // the branch is a field of the body: one in the URL's query is not read
+    const branch = fields.find((f) => f.startsWith("branch="))?.slice(7);
+    return branch === undefined || main(branch);
+  }
+  return false;
+}
+
+// whether kill, as called, is blind: it stops a process (-STOP, -s STOP,
+// -SIGSTOP, -19, -n 19), sends to every process (-1 as its target), or to
+// the shell's parent ($PPID)
+function blind(cmd: Cmd): boolean {
+  if (cmd.name !== "kill") {
+    return false;
+  }
+  const a = cmd.args;
+  let i = 0;
+  let sig = "";
+  const first = a[0] ?? "";
+  if (first === "-s" || first === "-n" || first === "--signal") {
+    sig = a[1] ?? "";
+    i = 2;
+  } else if (first.startsWith("--signal=")) {
+    sig = first.slice(9);
+    i = 1;
+  } else if (first.startsWith("-") && first !== "--" && first !== "-") {
+    // -STOP, -SIGSTOP, -sigstop, -19; or glued to -s, -n: -sSTOP, -n19
+    const glued = /^-[sn](.+)$/.exec(first);
+    sig = glued !== null && !/^(?:SIG)?STOP$/i.test(first.slice(1)) ? glued[1] ?? "" : first.slice(1);
+    i = 1;
+  }
+  // its targets (a -- among them is no process)
+  const pids = a.slice(i);
+  return /^(?:SIG)?STOP$|^19$/i.test(sig) || pids.includes("-1") || pids.some((p) => /PPID/.test(p));
 }
 
 // every simple command a command runs, or may (Guard.seen), env -S's
@@ -819,9 +985,11 @@ export function commands(command: string): Seen[] {
 // why a subagent's shell command is refused, or null: it does none of the
 // bans. Each simple command it runs, or may (Guard.commands), is read as
 // bash reads it (Guard.lex)
-export function forbidden(command: string): string | null {
+// (lines: the serve's command lines, this serve's by default; a test gives
+// others)
+export function forbidden(command: string, lines: string[] = SERVE_LINES): string | null {
   const all = commands(command);
-  const hit = BANS.filter((b) => all.some((s) => b.test(s.cmd, s.cmd.words.join(" "))) || b.whole?.(all) === true);
+  const hit = BANS.filter((b) => all.some((s) => b.test(s.cmd, s.cmd.words.join(" "))) || b.whole?.(all, lines) === true);
   if (hit.length === 0) {
     return null;
   }
