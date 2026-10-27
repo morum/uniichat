@@ -432,9 +432,11 @@ export namespace Cursor {
     return { send, stop, wake: () => wake.poke(), done };
   }
 
-  // the call's message: its blocks, and a word for images it can't take
+  // the call's message: its blocks, and a word (in pt-BR) for images it
+  // can't take
   export function message(texts: string[], imgs: number): string {
-    const note = imgs > 0 ? ["(" + imgs + " image" + (imgs > 1 ? "s" : "") + " not shown: this AI service takes text only here.)"] : [];
+    const what = imgs > 1 ? imgs + " imagens não enviadas" : "1 imagem não enviada";
+    const note = imgs > 0 ? ["(" + what + ": este serviço de IA aceita somente texto aqui.)"] : [];
     return [...texts.filter((t) => t !== ""), ...note].join("\n\n");
   }
 

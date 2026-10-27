@@ -284,6 +284,11 @@ describe("Cursor.variant", () => {
     expect(Cursor.spent("m", { runs: 2, input: 6, output: 10, read: 14, write: 22 })).toBe("cursor: m: 2 execuções; tokens: entrada 6, saída 10, cache lido 14, cache gravado 22");
   });
 
+  test("the call's message: its blocks; images it can't take told in Portuguese, one or more", () => {
+    expect(Cursor.message(["a", "", "b"], 0)).toBe("a\n\nb");
+    expect(Cursor.message(["a"], 1)).toBe("a\n\n(1 imagem não enviada: este serviço de IA aceita somente texto aqui.)");
+    expect(Cursor.message(["a"], 3)).toBe("a\n\n(3 imagens não enviadas: este serviço de IA aceita somente texto aqui.)");
+  });
 });
 
 describe("a call", () => {
