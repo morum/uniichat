@@ -2477,8 +2477,10 @@ export function promises_said(said: string[]): string {
 //   ASK_NOTIFY_IF, ASK_NOTIFY_BEFORE; "Me avise caso aprove." asks), nor
 //   "você decide" by contrast ("Ele não decide, você decide."), nor a
 //   rule of Unii's ("PR, merge e reinício só quando você mandar.": "só"
-//   in the simple clause of "quando…", ASK_ONLY_WHEN, P112; "Falta só
-//   o CI e mesclo quando você mandar." asks), while
+//   in the simple clause of "quando…", or leading a list it ends, "Só
+//   mesclo e reinicio quando você mandar.", or just after it, "Quando
+//   você mandar, só mesclo.": ask_only_rule, P112; "Falta só o CI e
+//   mesclo quando você mandar." asks), while
 //   "Falta só a sua aprovação." and "Não está ok?" ask (P87 #3);
 // - but one reporting a question ("Enzo perguntou: …?", "Perguntei ao
 //   Enzo se quer que eu mescle": ASK_REPORTED) only if it asks in words
@@ -2604,25 +2606,86 @@ const ASK_WHO_VERB = /\b(decide|escolhe|manda|define)\b/;
 // reinício só quando você mandar.", "Só mesclo quando você mandar.",
 // "Mesclo só o #24 quando você mandar.", P112), not a request; in
 // another clause it limits something else ("Falta só o CI e mesclo
-// quando você mandar." asks: ask_only_clause)
+// quando você mandar." asks: ask_only_rule)
 const ASK_ONLY_WHEN = /\b(?:so|somente|apenas|unicamente|exclusivamente)\b/;
 // what ends a simple clause, for ASK_ONLY_WHEN (no accents, lower): a
-// stop (, ; :) or a conjunction ("e", "mas", "que"…); not parentheses
-const ASK_ONLY_STOP = /[,;:]|\b(?:e|mas|ou|que|porem|pois|porque|entao|senao)\b/g;
+// stop (, ; :) or a conjunction ("e", "mas", "que"…); not parentheses,
+// nor "que" of a time ("depois que", "antes que", "até que", "desde
+// que", "logo que", "assim que", "sempre que"): "Só mesclo depois que o
+// CI passar quando você mandar." is one clause (P112, verif3 B1)
+const ASK_ONLY_STOP = /[,;:]|\b(?:e|mas|ou|(?<!\b(?:depois|antes|ate|desde|logo|assim|sempre) )que|porem|pois|porque|entao|senao)\b/g;
+// a noun phrase that goes on a list after "e" or a comma ("o #25", "a
+// tag", "#25"), for ask_only_rule (no accents, lower, trimmed)
+const ASK_ONLY_NOUN = /^(?:(?:o|a|os|as|um|uma|uns|umas)\b|[#\d])/;
 
-// the simple clause just before a request (`before`: the sentence up to
-// it, folded), for ASK_ONLY_WHEN (P112, verif2 B1): from the last stop
-// or conjunction (ASK_ONLY_STOP), parentheses read as not there ("Mesclo
-// (só o #24) quando…"), and one comma just before the request read as
-// not there either ("Só mesclo, quando…" is "Só mesclo quando…")
-function ask_only_clause(before: string): string {
+// whether "só" (ASK_ONLY_WHEN) makes the request just after `before`
+// (the sentence up to it, folded; the request starts with "quando") a
+// rule of Unii's (P112). Parentheses read as not there ("Mesclo (só o
+// #24) quando…"), and one comma just before the request either ("Só
+// mesclo, quando…" is "Só mesclo quando…"). The sentence is cut in simple
+// clauses at each stop or conjunction (ASK_ONLY_STOP). A rule if:
+// - "só" is in the request's own clause (verif2 B1): "Mesclo só o #24
+//   quando…", "PR, merge e reinício só quando…";
+// - or that clause goes on a list that a clause led by "só" starts
+//   (verif3 B1), through "e" or commas: of nouns ("Só mesclo o #24 e o
+//   #25 quando…", "Só abro o PR e a tag quando…"), of bare verbs ("Só
+//   mesclo e reinicio quando…", "Só mesclo, aplico e reinicio quando…"),
+//   or of conditions, the request's clause empty ("Reinicio só quando não
+//   houver agente e quando…", "Só mesclo depois do CI e quando…").
+// Else a request: "Falta só o CI e mesclo quando…" ("falta só o CI" isn't
+// led by "só"), "Só mesclo hoje e faço o deploy quando…" (neither a
+// bare verb nor a noun after "e"). In doubt it asks: a needless task
+// Unii drops costs less than a question lost ("Mesclo apenas o #24 e o
+// #25 quando…" and "Só abro o PR e mesclo quando…" ask, known limits)
+function ask_only_rule(before: string): boolean {
   const s = before.replace(/[()]/g, " ").replace(/,\s*$/, "");
-  let cut = 0;
+  const clauses: string[] = [];
+  const stops: string[] = [];
+  let from = 0;
   for (const m of s.matchAll(ASK_ONLY_STOP)) {
-    cut = m.index + m[0].length;
+    clauses.push(s.slice(from, m.index).trim());
+    stops.push(m[0]);
+    from = m.index + m[0].length;
   }
-  return s.slice(cut);
+  clauses.push(s.slice(from).trim());
+  let i = clauses.length - 1;
+  if (ASK_ONLY_WHEN.test(clauses[i]!)) {
+    return true;
+  }
+  // a clause's words, "eu" not counted; whether "só" leads them
+  const words = (x: string) => (x.match(/[a-z0-9#]+/g) ?? []).filter((w) => w !== "eu");
+  const led = (x: string) => ASK_ONLY_WHEN.test(words(x)[0] ?? "");
+  if (i >= 1 && clauses[i] === "" && stops[i - 1] === "e") {
+    const prev = clauses[i - 1]!;
+    return led(prev) || new RegExp(ASK_ONLY_WHEN.source + " quando\\b").test(prev);
+  }
+  while (i >= 1 && (stops[i - 1] === "e" || stops[i - 1] === ",")) {
+    const x = clauses[i]!;
+    const prev = clauses[i - 1]!;
+    if (ASK_ONLY_NOUN.test(x)) {
+      if (led(prev)) {
+        return true;
+      }
+      if (!ASK_ONLY_NOUN.test(prev)) {
+        return false;
+      }
+    } else if (words(x).length === 1) {
+      if (led(prev) && words(prev).length === 2) {
+        return true;
+      }
+      if (words(prev).length !== 1) {
+        return false;
+      }
+    } else {
+      return false;
+    }
+    i--;
+  }
+  return false;
 }
+// "só" just after a request put first ("Quando você mandar, só mesclo.",
+// P112, verif3 B4): the same rule
+const ASK_ONLY_AFTER = new RegExp("^\\s*,?\\s*(?:eu\\s+)?" + ASK_ONLY_WHEN.source);
 
 // whether a sentence (folded) asks in words (ASK_WORDS), one request in
 // it not negated just before (ASK_NEGATION), nor an instruction on an
@@ -2643,7 +2706,7 @@ function ask_in_words(s: string): boolean {
     // a rule of Unii's, not a request: "PR, merge e reinício só quando
     // você mandar.", "Só mesclo quando você mandar." (P112); "Mesclo
     // quando você mandar." still asks
-    if (/^quando\b/.test(s.slice(at)) && ASK_ONLY_WHEN.test(ask_only_clause(s.slice(0, at)))) {
+    if (/^quando\b/.test(s.slice(at)) && (ask_only_rule(s.slice(0, at)) || (/(?:^|[,;:])\s*$/.test(s.slice(0, at)) && ASK_ONLY_AFTER.test(s.slice(m.index + m[0].length))))) {
       continue;
     }
     if (/^me (?:avise|avisa|fale|fala)\b/.test(s.slice(at)) && clause.trim() === "" && ASK_NOTIFY_BEFORE.test(parts[parts.length - 1] ?? "")) {

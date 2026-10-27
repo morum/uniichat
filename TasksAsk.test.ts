@@ -458,9 +458,133 @@ test("\"só\" limits the request only in its own simple clause: after \"e\" or \
     expect(asks(x)).toEqual([]);
   }
   expect(asks("FALTA SÓ O CI E MESCLO QUANDO VOCÊ MANDAR.")).toEqual(["FALTA SÓ O CI E MESCLO QUANDO VOCÊ MANDAR."]);
-  // a question still asks; so does "só" after the request
+  // a question still asks
   expect(asks("Mesclo só quando você mandar?")).toEqual(["Mesclo só quando você mandar?"]);
-  expect(asks("Quando você mandar, só então mesclo.")).toEqual(["Quando você mandar, só então mesclo."]);
+  // "só" just after the request put first: the same rule (verif3 B4;
+  // before it, this asked)
+  expect(asks("Quando você mandar, só então mesclo.")).toEqual([]);
+});
+
+// The rule of "só" grown (P112, verif3 B1 and B4): the request's clause
+// may go on a list that a clause led by "só" starts, through "e" or
+// commas: of nouns ("o #25", "a tag"), of bare verbs ("reinicio"), or of
+// conditions ("… e quando você mandar"); "que" of a time ("depois que")
+// ends no clause; "só" just after a request put first is the same rule.
+// Anything else asks: in doubt a needless task (which Unii drops) costs
+// less than a question lost.
+test("Unii's rules with a list in \"e\" make no task; a request after \"e\" still does (P112, verif3 B1 and B4)", () => {
+  for (const x of [
+    "Só mesclo e reinicio quando você mandar.",
+    "Só mesclo o #24 e o #25 quando você mandar.",
+    "Só mesclo depois que o CI passar quando você mandar.",
+    "Só abro o PR e a tag quando você mandar.",
+    "Reinicio só quando não houver agente e quando você mandar.",
+    // longer lists, "eu", another condition, another time
+    "Só mesclo, aplico e reinicio quando você mandar.",
+    "Só mesclo o #24, o #25 e o #26 quando você mandar.",
+    "Eu só mesclo e reinicio quando você mandar.",
+    "Só mesclo depois do CI e quando você mandar.",
+    "Só aplico antes que o lote feche quando você mandar.",
+    "Só mesclo e reinicio, quando você mandar.",
+    // "só" just after the request put first (B4)
+    "Quando você mandar, só mesclo.",
+    "Quando você mandar, eu só mesclo.",
+    "Sem merge: quando você mandar, só mesclo.",
+    // a number with no article, a noun in parentheses
+    "Só mesclo o #24 e #25 quando você mandar.",
+    "Só mesclo o #24 e (o #25) quando você mandar.",
+    // what made no task before stays so
+    "Só mesclo, quando você mandar.",
+    "Só mesclo quando você mandar.",
+  ]) {
+    expect(asks(x)).toEqual([]);
+  }
+  for (const x of [
+    // a request after "e": a clause of its own, not on the list
+    "Falta só o CI e mesclo quando você mandar.",
+    "Só mesclo hoje e faço o deploy quando você mandar.",
+    "Tem só um PR e mesclo quando você mandar.",
+    "Falta só o CI e quando você mandar mesclo.",
+    "Falta só o CI e, quando você mandar, mesclo.",
+    // the list's first clause not led by "só": in doubt, it asks (a known
+    // limit: "Mesclo apenas o #24 e o #25" reads as a rule, too)
+    "Falta só o CI e o deploy quando você mandar.",
+    "Mesclo apenas o #24 e o #25 quando você mandar.",
+    // a verb with words after it, on either side: in doubt, it asks
+    "Só abro o PR e mesclo quando você mandar.",
+    "Só mesclo e faço o deploy quando você mandar.",
+    // a list that mixes nouns and verbs: in doubt, it asks
+    "Só mesclo, reinicio e o deploy quando você mandar.",
+    "Só mesclo o #24, o #25 e reinicio quando você mandar.",
+    // a list goes on only through "e" or a comma, not ";" nor "mas"
+    "Só mesclo o #24 hoje; o #25 quando você mandar.",
+    "Só revisei o #24, mas o #25 quando você mandar.",
+    // a condition goes on only through "e": ";" and "mas" end it
+    "Só mesclo hoje; quando você mandar, faço o deploy.",
+    "Só mesclo hoje, mas quando você mandar faço o deploy.",
+    // "que" not of a time still ends a clause
+    "Peço apenas que você mande quando puder.",
+    // "só" after a request not put first, or another request after it
+    "Mesclo quando você mandar, só depois do CI.",
+    "Mesclo quando você mandar, só isso.",
+    "Quando você mandar, só me avise.",
+    "Quando você mandar, reinicio.",
+    // what made a task before stays so
+    "Faço isso quando você mandar.",
+    "Mesclo quando você mandar.",
+  ]) {
+    expect(asks(x)).toEqual([x]);
+  }
+});
+
+test("\"ou\", \"pois\", \"senão\" and \"porque\" end the clause of \"só\": the request after them asks (P112, verif3 B2: M23 to M26)", () => {
+  for (const x of [
+    "Espero só o CI ou mesclo quando você mandar.",
+    "Revisei só o #24 pois mesclo quando você mandar.",
+    "Rodo só o lint senão mesclo quando você mandar.",
+    "Revisei só o #24 porque mesclo quando você mandar.",
+    "Revisei só o #24 porém mesclo quando você mandar.",
+    "Falta só o CI então mesclo quando você mandar.",
+  ]) {
+    expect(asks(x)).toEqual([x]);
+  }
+  // the same clause without them: the rule
+  expect(asks("Espero só o CI quando você mandar.")).toEqual([]);
+});
+
+test("the origin is quoted whole up to 160 characters, cut after, with no blank before the ellipsis; one block too long is cut at DETAIL (P112, verif3 B2: M16, M17, M31, M32)", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ask-"));
+  const s = T.tasks_load(dir);
+  const now = Date.now();
+  const quote = (text: string) => {
+    const t = T.task_asked(s, ["Mesclo?"], now, { id: 1, text, date: null }) as T.Task;
+    const got = t.detail.match(/que começa assim: “([^”]*)”/)?.[1];
+    t.state = "dropped";
+    return got;
+  };
+  // 160 characters: whole, no ellipsis
+  expect(quote("a".repeat(160))).toBe("a".repeat(160));
+  // 161: the first 160, then the ellipsis
+  expect(quote("b".repeat(161))).toBe("b".repeat(160) + "…");
+  // 159: whole
+  expect(quote("c".repeat(159))).toBe("c".repeat(159));
+  // the cut ends in a blank: no blank before the ellipsis
+  expect(quote("d".repeat(159) + " " + "e".repeat(10))).toBe("d".repeat(159) + "…");
+  // one block longer than DETAIL alone: the detail cut at DETAIL
+  const t = T.task_asked(s, ["f".repeat(T.DETAIL + 500) + "?"], now, { id: 2, text: "Mesclo?", date: null }) as T.Task;
+  expect(t.detail).toStartWith(T.ASKED_HEAD);
+  expect(t.detail.length).toBe(T.DETAIL);
+  expect(t.detail).toContain("Mensagem de origem: nº 2,");
+  // the same block added to an open task: the old block goes, the new
+  // one alone is still cut at DETAIL
+  const u = T.task_asked(s, ["g".repeat(T.DETAIL + 500) + "?"], now + 1, { id: 3, text: "Aplico?", date: null }) as T.Task;
+  expect(u.id).toBe(t.id);
+  expect(u.detail).toStartWith(T.ASKED_HEAD);
+  expect(u.detail.length).toBe(T.DETAIL);
+  expect(u.detail).toContain("Mensagem de origem: nº 3,");
+  expect(u.detail).not.toContain("nº 2,");
+  T.tasks_forget();
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test("\":\" ends a clause for a negation: \"Nada mudou: depende de ordem sua.\" asks (P112, verif2 B2)", () => {

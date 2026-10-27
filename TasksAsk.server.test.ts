@@ -137,6 +137,13 @@ test("\"PR, merge e reinício só quando você mandar.\" (a rule of Unii's) make
   await turn("Só mesclo quando você mandar.");
   expect(chat.mem.count).toBe(count + 2);
   expect(asked()).toHaveLength(0);
+  // "só" leading a list in "e", or just after the request put first:
+  // the same rule (verif3 B1 and B4)
+  await turn("Só mesclo e reinicio quando você mandar.");
+  await turn("Só mesclo o #24 e o #25 quando você mandar.");
+  await turn("Quando você mandar, só mesclo.");
+  expect(chat.mem.count).toBe(count + 5);
+  expect(asked()).toHaveLength(0);
   // "só" in another clause, before "e": a request, so a task (verif2 B1)
   await turn("Falta só o CI e mesclo quando você mandar.");
   expect(asked()).toHaveLength(1);
