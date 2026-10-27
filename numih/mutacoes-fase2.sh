@@ -21,6 +21,9 @@ if [ -z "$MODULOS" ] || [ ! -d "$MODULOS" ]; then
 fi
 
 # ID <TAB> arquivo (relativo à raiz) <TAB> trecho original <TAB> trecho mutado
+# [<TAB> trecho original <TAB> trecho mutado ...]: mais pares no mesmo
+# arquivo, aplicados em ordem, cada um uma só vez (uma mutação em vários
+# pontos)
 MUTACOES="$(cat <<'TABELA'
 R1	Tools.ts	    if (agent.role.numih) {	    if (false) {
 R2	Tools.ts	+ pack.text;	+ "";
@@ -91,25 +94,35 @@ S15	Machine.ts	(/^[ \t]/.test(lines[k + 1])	(/^ /.test(lines[k + 1])
 S16	Machine.ts	head.split(/\r?	head.split(/
 S17	Machine.ts	l.slice(cut).trimEnd()	l.slice(cut)
 S18	Machine.ts	if (v !== null && !(kv[1] in out)) {	if (!(kv[1] in out)) {
+S19	Machine.ts	head.split(/\r?	head.split(/	):[ \t]+(\S.*)$/.exec(lines[k])	):[ \t]+(\S.*)\r?$/.exec(lines[k])	l.slice(cut).trimEnd()	l.slice(cut).replace(/[ \t]+$/, "")
+S20	Machine.ts	head.split(/\r?	head.split(/	):[ \t]+(\S.*)$/.exec(lines[k])	):[ \t]+(\S.*)\r?$/.exec(lines[k])	|| lines[k + 1].trim() === "")	|| lines[k + 1] === "")
+S21	Machine.ts	l.slice(cut).trimEnd()	l.slice(cut).replace(/ +$/, "")
 TABELA
 )"
 
 um() { # linha da tabela
-  local id arq de para
-  IFS=$'\t' read -r id arq de para <<<"$1"
+  local id arq de para resto
+  IFS=$'\t' read -r id arq de para resto <<<"$1"
   local d="$BASE/$id"
   mkdir -p "$d/r"
   tar -C "$RAIZ" --exclude=./.git --exclude=./node_modules -cf - . | tar -C "$d/r" -xf -
   ln -s "$MODULOS" "$d/r/node_modules"
-  if ! ID="$id" DE="$de" PARA="$para" python3 -I - "$d/r/$arq" <<'PY'
+  if ! ID="$id" DE="$de" PARA="$para" RESTO="$resto" python3 -I - "$d/r/$arq" <<'PY'
 import os, sys
 p = sys.argv[1]
-de = os.environ["DE"].replace("\\n", "\n")
-para = os.environ["PARA"].replace("\\n", "\n")
+campos = [os.environ["DE"], os.environ["PARA"]]
+if os.environ["RESTO"] != "":
+    campos += os.environ["RESTO"].split("\t")
+if len(campos) % 2 != 0:
+    sys.exit(f"{os.environ['ID']}: trecho original sem trecho mutado")
 s = open(p, encoding="utf-8").read()
-if s.count(de) != 1:
-    sys.exit(f"{os.environ['ID']}: trecho original aparece {s.count(de)} vez(es) em {p}")
-open(p, "w", encoding="utf-8").write(s.replace(de, para))
+for i in range(0, len(campos), 2):
+    de = campos[i].replace("\\n", "\n")
+    para = campos[i + 1].replace("\\n", "\n")
+    if s.count(de) != 1:
+        sys.exit(f"{os.environ['ID']}: trecho original aparece {s.count(de)} vez(es) em {p}")
+    s = s.replace(de, para)
+open(p, "w", encoding="utf-8").write(s)
 PY
   then printf '%s\tNÃO APLICADA\n' "$id"; return 0; fi
   local rc=0

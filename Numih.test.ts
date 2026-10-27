@@ -583,6 +583,36 @@ test("skills: in a frontmatter strict YAML refuses, CRLF line ends read as LF; a
   ]);
 });
 
+test("skills: in a frontmatter strict YAML refuses, CRLF line ends in a folded or literal block, blank lines in it too, read as LF; a block line's trailing tab is cut as a space is", () => {
+  const root = path.join(TMP, "fins-bloco");
+  const put = (dir: string, head: string, eol = "\n") => {
+    fs.mkdirSync(path.join(root, dir), { recursive: true });
+    // the last line makes strict YAML refuse it all
+    const text = "---\nname: " + dir + "\n" + head + "\nx: [quebrado\n---\n# corpo\n";
+    fs.writeFileSync(path.join(root, dir, "SKILL.md"), text.replace(/\n/g, eol));
+  };
+  // CRLF in a block: no line's "\r" reaches the value (the first line's
+  // is the one to see: the value's trim cuts the last line's anyway)
+  put("crlf-dobrada", "description: >\n  linha um\n  linha dois", "\r\n");
+  put("crlf-literal", "description: |\n  linha um\n  linha dois", "\r\n");
+  // CRLF and a blank line in the block: the blank line, "\r" alone before
+  // its LF is read, stays in the block
+  put("crlf-dobrada-branca", "description: >\n  primeiro\n\n  segundo", "\r\n");
+  put("crlf-literal-branca", "description: |\n  primeiro\n\n  segundo", "\r\n");
+  // a tab at the end of a block's line doesn't reach the value
+  put("dobrada-tab", "description: >\n  linha um\t\n  linha dois");
+  put("literal-tab", "description: |\n  linha um\t\n  linha dois");
+  const got = Machine.skills(path.join(TMP, "ninguem"), path.join(TMP, "nenhum"), root);
+  expect(got.map((s) => [s.name, s.description])).toEqual([
+    ["crlf-dobrada", "linha um linha dois"],
+    ["crlf-dobrada-branca", "primeiro\nsegundo"],
+    ["crlf-literal", "linha um\nlinha dois"],
+    ["crlf-literal-branca", "primeiro\n\nsegundo"],
+    ["dobrada-tab", "linha um linha dois"],
+    ["literal-tab", "linha um\nlinha dois"],
+  ]);
+});
+
 test("skills: a description is cut at 1024 characters", () => {
   const root = path.join(TMP, "longa");
   const long = "a".repeat(1023) + "bc" + "d".repeat(100);
