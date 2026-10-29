@@ -84,12 +84,17 @@
 // (.+)+x took the guard past 10 s) is refused as one it can't read. Out
 // of reach: a tag made in one command and pushed by its name in another
 // (git push origin v1 can't be told from a branch v1); GraphQL mutations
-// other than a merge; httpie and other clients of the API.
+// other than a merge; httpie and other clients of the API. A grep counts
+// only in the ps's own pipeline, after the ps and before a kill there
+// (ps | grep -v Cli.ts | xargs kill goes; ps | xargs kill; grep -v Cli.ts
+// f does not, the grep is another command). One that picks by ps's other
+// columns (state, start time) is read only against the command line.
 //
 // What only looks like a ban goes: git push --help, terraform plan -out
 // apply (apply is the plan's file), gh api reads (GET, HEAD), curl reads
 // of the API, fuser and lsof that only list.
 
+import { readFileSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { join } from "node:path";
 
@@ -100,7 +105,7 @@ import { join } from "node:path";
 // comments and redirections taken out, braces expanded), the targets of
 // its redirections (files, not arguments) and the scripts it substitutes
 // ($(...), `...`, <(...))
-export type Simple = { words: string[]; targets: string[]; subs: string[] };
+export type Simple = { words: string[]; targets: string[]; subs: string[]; join: boolean };
 
 // a command met in a command: loose, when it is only a word that holds a
 // space, read as a command because it may be one (bash -c '...'); kills
@@ -251,10 +256,20 @@ export const BANS: Ban[] = [
     what: "publicar tags (um release é ordem do usuário)",
     test: (c) => pushes(c.words).some((p) => p.tags || p.specs.some((s) => TAG.test(s.replace(/^\+/, "")))),
     // a tag made and pushed by its name in one command (git tag v1 && git
-    // push origin v1); in two commands the serve can't tell v1 is a tag
+    // push origin v1); in two commands the serve can't tell v1 is a tag.
+    // v1:feat/x publishes a tag too (refs/tags/feat/x) when the remote
+    // has no branch feat/x (git 2.x, tried on a bare repository; PlumJaguar
+    // read the destination as the branch). The serve can't see the remote:
+    // only a destination under refs/heads/ goes (v1:refs/heads/feat/x)
     whole: (seen) => {
       const made = seen.flatMap((s) => tags_made(s.cmd.words));
-      return made.length > 0 && seen.some((s) => pushes(s.cmd.words).some((p) => p.specs.some((x) => made.includes(x.replace(/^\+/, "").split(":")[0] ?? ""))));
+      return made.length > 0 && seen.some((s) => pushes(s.cmd.words).some((p) => p.specs.some((x) => {
+        const raw = x.replace(/^\+/, "");
+        const cut = raw.indexOf(":");
+        const src = cut < 0 ? raw : raw.slice(0, cut);
+        const dst = cut < 0 ? "" : raw.slice(cut + 1);
+        return made.includes(src) && !dst.startsWith("refs/heads/");
+      })));
     },
   },
   {
@@ -273,7 +288,7 @@ export const BANS: Ban[] = [
         || run.some((c) => c.name === "fuser" && fuser_kills(c))
         || kill && run.some((c) => (c.name === "pgrep" || c.name === "pidof") && targets(c, lines))
         || kill && run.some((c) => c.name === "lsof" && lsof_finds(c))
-        || kill && run.some((c) => c.name === "ps") && ps_finds(run, lines);
+        || kill && run.some((c) => c.name === "ps") && ps_finds(seen, lines);
     },
   },
   {
@@ -323,7 +338,10 @@ export function lex(script: string): Simple[] {
   const out: Simple[] = [];
   const s = script;
   const n = s.length;
-  let cmd: Simple = { words: [], targets: [], subs: [] };
+  let cmd: Simple = { words: [], targets: [], subs: [], join: false };
+  // the command now being read continues the pipeline opened by | or |&
+  // (|| && ;; and ; & do not: ps || grep is not a pipe)
+  let piped = false;
   // the word being read: its characters, each quoted (or escaped) or not
   let cs: string[] = [];
   let qs: boolean[] = [];
@@ -362,9 +380,10 @@ export function lex(script: string): Simple[] {
     target = false;
     here = null;
     if (cmd.words.length + cmd.targets.length + cmd.subs.length > 0) {
+      cmd.join = piped;
       out.push(cmd);
     }
-    cmd = { words: [], targets: [], subs: [] };
+    cmd = { words: [], targets: [], subs: [], join: false };
   };
   // where the k-th character from i stands: bash takes a line continued
   // (\ and a newline) out before it reads a token, so >\ newline &- is >&-
@@ -495,6 +514,7 @@ export function lex(script: string): Simple[] {
     }
     if (c === "\n") {
       end_cmd();
+      piped = false;
       i += 1;
       // the heredocs opened on this line: each body runs to its end's
       // line, read apart (a ' in it opens nothing past it) and as run
@@ -510,7 +530,7 @@ export function lex(script: string): Simple[] {
           }
           body += line + "\n";
         }
-        out.push({ words: [], targets: [], subs: [body] });
+        out.push({ words: [], targets: [], subs: [body], join: false });
       }
       continue;
     }
@@ -535,11 +555,15 @@ export function lex(script: string): Simple[] {
       here = op === "<<" || op === "<<-" ? op : null;
       continue;
     }
-    // ;, &, |, (, ): each ends a command (;;, &&, ||, |& are two of them
-    // in a row, to the guard the same)
+    // ; & | ( ): each ends a command. || && ;; |& are one operator.
+    // A pipe (| or |&) joins the next command to this pipeline; || &&
+    // ;; ; & do not (ps || grep is not ps | grep)
     if (c === ";" || c === "&" || c === "|" || c === "(" || c === ")") {
+      const two = c + (s[i + 1] ?? "");
+      const pair = two === "||" || two === "&&" || two === ";;" || two === "|&";
       end_cmd();
-      i += 1;
+      piped = c === "|" && s[i + 1] !== "|";
+      i += pair ? 2 : 1;
       continue;
     }
     add(c, false);
@@ -708,7 +732,7 @@ function braces(cs: string[], qs: boolean[]): string[] {
 function seen(script: string, depth: number, loose: boolean, out: Seen[]): Seen[] {
   if (depth >= DEPTH) {
     if (!loose) {
-      out.push({ cmd: { words: [], targets: [], subs: [] }, loose, deep: true });
+      out.push({ cmd: { words: [], targets: [], subs: [], join: false }, loose, deep: true });
     }
     return out;
   }
@@ -892,8 +916,9 @@ function hits(pattern: string, full: boolean, exact: boolean, nocase: boolean, l
 
 // whether a pattern may take long to match the serve's lines (a JS regex
 // backtracks: (.+)+x or (.*.*.*.*)x took the guard past 10 s, the serve
-// frozen with it): too long, a quantifier inside a quantified group, a
-// back reference, more than 2 quantifiers that repeat (*, +, {n,m}; a ?
+// frozen with it): too long, a quantifier or an alternation inside a
+// quantified group ((.|.)*zz), a back reference, more than 2 quantifiers
+// that repeat (*, +, {n,m}; a ?
 // after a group only makes it optional), or
 // more than 8 in all (?, {n} too). Such a pattern is refused as one that
 // can't be read (Guard.hits); a measure, not a proof: the test holds it
@@ -904,6 +929,9 @@ export function slow(pattern: string): boolean {
   }
   // each group open: whether a quantifier stands in it
   const open: boolean[] = [];
+  // each group open: whether an alternation stands in it ((.|.)*zz took
+  // 1162 ms on the serve's lines: its branches match the same text)
+  const alts: boolean[] = [];
   let repeats = 0;
   let all = 0;
   let inside = false;
@@ -924,15 +952,26 @@ export function slow(pattern: string): boolean {
     }
     if (c === "(") {
       open.push(false);
+      alts.push(false);
+      continue;
+    }
+    if (c === "|") {
+      if (alts.length > 0) {
+        alts[alts.length - 1] = true;
+      }
       continue;
     }
     const quant = c === "*" || c === "+" || c === "?" && pattern[i - 1] !== "(" || c === "{" && /^\{\d*,?\d*\}/.test(pattern.slice(i));
     if (c === ")") {
       inside = open.pop() ?? false;
-      // a quantifier after a group with one in it: nested
+      const alt = alts.pop() ?? false;
+      // a quantifier after a group with one or an alternation in it
       const q = pattern[i + 1] ?? "";
-      if (inside && (q === "*" || q === "+" || q === "{")) {
+      if ((inside || alt) && (q === "*" || q === "+" || q === "{")) {
         return true;
+      }
+      if (alt && alts.length > 0) {
+        alts[alts.length - 1] = true;
       }
       if (inside && open.length > 0) {
         open[open.length - 1] = true;
@@ -993,8 +1032,10 @@ function lsof_finds(cmd: Cmd): boolean {
       if (i[1] === "" && spec !== "") {
         k += 1;
       }
-      const port = /:(\w+)(?:-\w+)?$/.exec(spec)?.[1];
-      if (port === undefined || !/^\d+$/.test(port) || SERVE_PORTS.includes(port)) {
+      // the port list after the last colon (:8788, TCP:8787-8789,
+      // :8787,8788, :http); none: every socket
+      const at = spec.lastIndexOf(":");
+      if (at < 0 || ports_hit(spec.slice(at + 1))) {
         return true;
       }
       picked = true;
@@ -1012,30 +1053,174 @@ function lsof_finds(cmd: Cmd): boolean {
   return !picked;
 }
 
-// whether ps, in a command with a kill (kill $(ps -C bun -o pid=), ps aux
-// | grep bun | xargs kill), finds what may be the serve: ps -C naming it,
-// or every process (ps aux, ps -e) not filtered by a grep whose pattern
-// misses the serve's lines; ps -p with its pids goes
-function ps_finds(run: Cmd[], lines: string[]): boolean {
-  const greps = run.filter((c) => /^(?:e|f|r)?grep$|^rg$/.test(c.name));
-  for (const c of run.filter((x) => x.name === "ps")) {
-    const a = c.args;
-    const by = (f: string[]) => a.findIndex((o) => f.includes(o));
-    const cmd = by(["-C"]);
-    if (cmd >= 0) {
-      if ((a[cmd + 1] ?? "").split(",").some((n) => SERVE_NAMES.includes(n) || /\$|`/.test(n))) {
-        return true;
+// the services file's text (/etc/services), read once
+let SERVICES: string | null = null;
+
+// whether an lsof -i port list holds the serve's port: a port (8788), a
+// range (8780-8790), a list (8787,8788), or a service's name looked up
+// in the services file (http is 80: it goes); what can't be read ($P)
+// may be the serve
+export function ports_hit(list: string, services?: string): boolean {
+  if (services === undefined) {
+    if (SERVICES === null) {
+      try {
+        SERVICES = readFileSync("/etc/services", "utf8");
+      } catch {
+        SERVICES = "";
+      }
+    }
+    services = SERVICES;
+  }
+  const text = services;
+  return list.split(",").some((p) => {
+    const range = /^(\d+)-(\d+)$/.exec(p);
+    if (range !== null) {
+      return SERVE_PORTS.some((s) => Number(s) >= Number(range[1]) && Number(s) <= Number(range[2]));
+    }
+    if (/^\d+$/.test(p)) {
+      return SERVE_PORTS.includes(p);
+    }
+    if (!/^[A-Za-z][\w.+-]*$/.test(p)) {
+      return true;
+    }
+    // its lines: name port/protocol aliases...
+    return text.split("\n").some((l) => {
+      const w = l.replace(/#.*/, "").trim().split(/\s+/);
+      return (w[0] === p || w.slice(2).includes(p)) && SERVE_PORTS.includes((w[1] ?? "").split("/")[0] ?? "");
+    });
+  });
+}
+
+// a grep's reading: its patterns (-e, -eX, --regexp=X, else its first
+// word), whether it inverts (-v), ignores case (-i), matches only whole
+// lines or words (-x, -w), or reads its patterns from a file (-f)
+function grep_of(c: Cmd): { pats: string[]; v: boolean; i: boolean; whole: boolean; file: boolean } {
+  const out = { pats: [] as string[], v: false, i: false, whole: false, file: false };
+  const pos: string[] = [];
+  const a = c.args;
+  for (let k = 0; k < a.length; k++) {
+    const o = a[k] ?? "";
+    if (o === "--") {
+      pos.push(...a.slice(k + 1));
+      break;
+    }
+    if (o.startsWith("--")) {
+      const [name = "", val] = o.split(/=(.*)/s);
+      if (name === "--regexp" || name === "--file") {
+        const x = val ?? a[++k] ?? "";
+        if (name === "--file") out.file = true;
+        else out.pats.push(x);
+      } else if (name === "--invert-match") out.v = true;
+      else if (name === "--ignore-case") out.i = true;
+      else if (name === "--line-regexp" || name === "--word-regexp") out.whole = true;
+      else if (/^--(?:max-count|after-context|before-context|context)$/.test(name) && val === undefined) k += 1;
+      continue;
+    }
+    if (o.startsWith("-") && o.length > 1) {
+      // a cluster of short options (-iv, -ve x, -eX)
+      for (let j = 1; j < o.length; j++) {
+        const f = o[j] ?? "";
+        if ("efmABCdD".includes(f)) {
+          const x = j + 1 < o.length ? o.slice(j + 1) : a[++k] ?? "";
+          if (f === "e") out.pats.push(x);
+          if (f === "f") out.file = true;
+          break;
+        }
+        if (f === "v") out.v = true;
+        if (f === "i") out.i = true;
+        if (f === "x" || f === "w") out.whole = true;
       }
       continue;
     }
-    const pid = by(["-p", "--pid", "p"]);
-    if (pid >= 0 && /^[\d,\s]+$/.test(a[pid + 1] ?? "")) {
+    pos.push(o);
+  }
+  if (out.pats.length === 0 && !out.file && pos[0] !== undefined) {
+    out.pats.push(pos[0]);
+  }
+  return out;
+}
+
+// whether a grep keeps a line of the serve. One that picks (no -v) keeps
+// it if a pattern may match it, read as a JS regex and as grep's basic
+// one (bun\|x), in any case. One that inverts (-v) drops it only if a
+// pattern of plain text stands in it (grep -v Cli.ts); a regex, -x, -w,
+// -f: it may keep it
+function grep_keeps(g: ReturnType<typeof grep_of>, line: string): boolean {
+  if (g.file || g.pats.length === 0) {
+    return true;
+  }
+  if (!g.v) {
+    return g.pats.some((p) => hits(p, true, false, true, [line]) || hits(p.replace(/\\([|(){}+?])/g, "$1"), true, false, true, [line]));
+  }
+  if (g.whole) {
+    return true;
+  }
+  return !g.pats.some((p) => /^[\w .:/=@%,-]+$/.test(p) && (g.i ? line.toLowerCase().includes(p.toLowerCase()) : line.includes(p)));
+}
+
+// whether ps, in a command with a kill (kill $(ps -C bun -o pid=), ps aux
+// | grep bun | xargs kill), finds what may be the serve: ps -C naming it,
+// or every process (ps aux, ps -e) whose pipeline keeps a line of the
+// serve. The greps that count stand after that ps and before a kill in
+// the same pipeline (ps | grep -v nosuch | xargs kill is refused;
+// ps | xargs kill; grep -v Cli.ts f is refused too: the grep is another
+// command and does not clear the ps). A pick keeps the line if any of
+// them may match it; every invert must drop it. ps -p with its pids goes
+function ps_finds(all: Seen[], lines: string[]): boolean {
+  const run: { name: string; args: string[]; join: boolean }[] = [];
+  for (const s of all) {
+    if (s.loose) {
       continue;
     }
-    // every process: a grep must say which, and miss the serve
-    const pats = greps.map((g) => g.args.find((x) => !x.startsWith("-")));
-    if (pats.length === 0 || pats.some((p) => p === undefined || hits(p, true, false, true, lines))) {
-      return true;
+    const c = command_of(s.cmd.words);
+    run.push({ name: c?.name ?? "", args: c?.args ?? [], join: s.cmd.join });
+  }
+  const groups: { name: string; args: string[]; join: boolean }[][] = [];
+  let cur: { name: string; args: string[]; join: boolean }[] = [];
+  for (const c of run) {
+    if (!c.join && cur.length > 0) {
+      groups.push(cur);
+      cur = [];
+    }
+    cur.push(c);
+  }
+  if (cur.length > 0) {
+    groups.push(cur);
+  }
+  const isGrep = (n: string) => /^(?:e|f|r)?grep$|^rg$/.test(n);
+  for (const g of groups) {
+    for (let i = 0; i < g.length; i++) {
+      const c = g[i];
+      if (c === undefined || c.name !== "ps") {
+        continue;
+      }
+      const a = c.args;
+      const by = (f: string[]) => a.findIndex((o) => f.includes(o));
+      const named = by(["-C"]);
+      if (named >= 0) {
+        if ((a[named + 1] ?? "").split(",").some((n) => SERVE_NAMES.includes(n) || /\$|`/.test(n))) {
+          return true;
+        }
+        continue;
+      }
+      const pid = by(["-p", "--pid", "p"]);
+      if (pid >= 0 && /^[\d,\s]+$/.test(a[pid + 1] ?? "")) {
+        continue;
+      }
+      let end = g.length;
+      for (let j = i + 1; j < g.length; j++) {
+        if (g[j]?.name === "kill") {
+          end = j;
+          break;
+        }
+      }
+      const greps = g.slice(i + 1, end).filter((x) => isGrep(x.name)).map((x) => grep_of({ name: x.name, args: x.args }));
+      const picks = greps.filter((x) => !x.v);
+      const drops = greps.filter((x) => x.v);
+      const kept = (l: string) => (picks.length === 0 || picks.some((x) => grep_keeps(x, l))) && drops.every((x) => grep_keeps(x, l));
+      if (lines.some(kept)) {
+        return true;
+      }
     }
   }
   return false;

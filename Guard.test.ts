@@ -327,6 +327,37 @@ const NO = [
   "wget --method=DELETE https://api.github.com/repos/o/r/git/refs/heads/main",
   "git tag v1 HEAD~1 && git push origin v1",
   "git push origin tag",
+  // PlumJaguar's (P109): a range or a list of ports that holds 8788, a ps
+  // whose grep -v keeps the serve, an alternation repeated
+  "kill $(lsof -ti :8780-8790)",
+  "kill $(lsof -ti TCP:8787-8789)",
+  "kill $(lsof -ti :8788-8788)",
+  "lsof -ti :8787,8788 | xargs kill",
+  "kill $(lsof -t -i '[::1]:8780-8799')",
+  "ps aux | grep -v nosuch | xargs kill",
+  "ps aux | grep -iv NOSUCH | xargs kill",
+  "ps aux | grep -v -e nosuch | xargs kill",
+  "ps aux | grep --invert-match nosuch | xargs kill",
+  "ps aux | grep -v grep | xargs kill",
+  "ps aux | grep -vx Cli.ts | xargs kill",
+  "ps aux | grep -v 'Cli.ts$' | xargs kill",
+  "ps aux | grep -v -f pats.txt | xargs kill",
+  "ps aux | grep bun | grep -v grep | xargs kill",
+  "ps aux | grep -A 3 bun | xargs kill",
+  "ps aux | grep -e nosuch -e bun | xargs kill",
+  "ps aux | grep 'nosuch\\|Cli' | xargs kill",
+  // v1:feat/x publishes refs/tags/feat/x when the remote has no such
+  // branch (git 2.x on a bare repository). Not a false positive.
+  // v1:refs/heads/feat/x is a branch and goes (YES). The alternation
+  // pkill is refused in the slow() test, on three lines, under 1 s.
+  "git tag v1 && git push origin v1:feat/x",
+  "git tag v1 && git push origin v1:heads/feat/x",
+  "git tag v1 && git push origin +v1:feat/x",
+  // a grep outside the ps's pipeline does not clear an unfiltered ps
+  "ps aux | xargs kill; grep -v Cli.ts f",
+  "ps aux | xargs kill | grep -v Cli.ts",
+  "ps aux || grep -v Cli.ts | xargs kill",
+  "kill $(ps aux | grep -v nosuch)",
 ];
 
 const YES = [
@@ -469,6 +500,18 @@ const YES = [
   "curl -I https://api.github.com/repos/o/r",
   "wget --method=GET -qO- https://api.github.com/repos/o/r",
   "git tag -d v0 && git push origin v0",
+  "kill $(lsof -ti :http)",
+  "kill $(lsof -ti TCP:8790-8799)",
+  "lsof -ti :8780,8790 | xargs kill",
+  "ps aux | grep 'bun test' | grep -v grep | awk '{print $2}' | xargs kill",
+  "ps aux | grep bun | grep -v Cli.ts | xargs kill",
+  "ps aux | grep -v Cli.ts | grep -v -i nosuch | xargs kill",
+  "ps aux | grep -iv CLI.TS | xargs kill",
+  "ps aux | grep -e nosuch -e other | xargs kill",
+  "ps aux | grep -v Cli.ts | xargs kill",
+  "git tag v1 && git push origin v1:refs/heads/feat/x",
+  "git tag v1 && git push origin +v1:refs/heads/feat/x",
+  "pkill -f '(?:x|y)z+'",
 ];
 
 test("a command is read as bash reads it: operators, quotes, backslashes, comments", () => {
@@ -539,7 +582,7 @@ test("a command nested too deep to read is refused, one less deep is read", () =
 // bans them)
 test("what is out of the guard's reach goes through, as its header says", () => {
   for (const c of ["git push origin HEAD~0", "git push origin HEAD^", "git push origin main^{}", "git push origin main@{0}", "$CMD", "$GIT push origin main", "bash script.sh",
-    "echo 'pkill bun' | bash", "git -c alias.p=push p origin main", "mise exec -- pkill bun"]) {
+    "echo 'pkill bun' | bash", "git -c alias.p=push p origin main", "mise exec -- pkill bun", "git push origin v1"]) {
     expect([c, Guard.forbidden(c)]).toEqual([c, null]);
   }
 });
@@ -644,19 +687,49 @@ test("gh and terraform are read by their words, past their options", () => {
 // GrayCrab (P109): pkill -f '^(.+)+x$' took the guard past 10 s, the serve
 // frozen with it; such a pattern is refused before it is matched
 test("a pattern that may take long to match is refused at once, in less than 1 s", () => {
-  for (const p of ["^(.+)+x$", "(.*.*.*.*)x", "(a+)*b", "(x|.?)*y", "(.{1,9})+z", "(a+){2,}b", "a{1,5}b{2,}c{0,3}d", ".*.*.*zz", "(a)\\1", "a?".repeat(9) + "b", "x".repeat(257)]) {
+  for (const p of ["^(.+)+x$", "(.*.*.*.*)x", "(a+)*b", "(x|.?)*y", "(.{1,9})+z", "(a+){2,}b", "a{1,5}b{2,}c{0,3}d", "(.|.)*zz", "(?:.|.)*zz", "(a|b)+c", "(?:x|xy){2,}z", "((a|b)c)*d", ".*.*.*zz", "(a)\\1", "a?".repeat(9) + "b", "x".repeat(257)]) {
     const t0 = performance.now();
     const no = Guard.forbidden("pkill -f '" + p + "'", REAL);
     expect([p, performance.now() - t0 < 1000]).toEqual([p, true]);
     expect(no === null ? "passou: " + p : no).toContain("reiniciar ou parar o serve");
     expect([p, Guard.slow(p)]).toEqual([p, true]);
   }
-  for (const p of ["morum.*device", "bun.*Cli.*serve", "bun test", "(?:a|b)c+", "(?:ab)+c", "(a+)?b", "[(*+]x", "[*+*+]x", "a.*?b", "a?b?c?d?e?f?g?.*?x", "x{3}y", "a?".repeat(8) + "b", "\\(a\\)+", "\\(a+\\)+", "x".repeat(256)]) {
+  for (const p of ["morum.*device", "bun.*Cli.*serve", "bun test", "(?:a|b)c+", "(a|b)?c", "x(a|b)c", "a|b+", "(?:ab)+c", "(a+)?b", "[(*+]x", "[*+*+]x", "a.*?b", "a?b?c?d?e?f?g?.*?x", "x{3}y", "a?".repeat(8) + "b", "\\(a\\)+", "\\(a+\\)+", "x".repeat(256)]) {
     expect([p, Guard.slow(p)]).toEqual([p, false]);
   }
   const t0 = performance.now();
   expect(Guard.forbidden("pkill -f '.*.*zz'", REAL)).toBeNull();
   expect(performance.now() - t0).toBeLessThan(1000);
+});
+
+// PlumJaguar (P109): lsof -ti :8780-8790 holds 8788; :http is 80
+test("a port list of lsof -i: ranges, lists, a service's name by the services file", () => {
+  expect(Guard.ports_hit("8780-8790")).toBe(true);
+  expect(Guard.ports_hit("8790-8799")).toBe(false);
+  expect(Guard.ports_hit("80,8788")).toBe(true);
+  expect(Guard.ports_hit("http", "http 80/tcp www\n")).toBe(false);
+  expect(Guard.ports_hit("web", "web 8788/tcp\n")).toBe(true);
+  expect(Guard.ports_hit("www", "web 8788/tcp www # a comment\n")).toBe(true);
+  expect(Guard.ports_hit("web", "x 8788/tcp # web\nweb 80/tcp\n")).toBe(false);
+  expect(Guard.ports_hit("$P", "")).toBe(true);
+});
+
+// PlumJaguar (P109): ps aux | grep -v nosuch | xargs kill kept the serve
+test("a grep -v drops the serve only by plain text that stands in its line", () => {
+  const lines = ["/opt/bun /srv/a{2}/Cli.ts serve", "/opt/bun /srv/a{2}/Cli.ts device"];
+  expect(Guard.forbidden("ps aux | grep -v 'a{2}' | xargs kill", lines)).toContain("reiniciar ou parar o serve");
+  expect(Guard.forbidden("ps aux | grep -v /srv/ | xargs kill", lines)).toBeNull();
+  expect(Guard.forbidden("ps aux | grep -v device | xargs kill", lines)).toContain("reiniciar ou parar o serve");
+  expect(Guard.forbidden("ps aux | grep -v -f pats.txt Cli.ts | xargs kill", lines)).toContain("reiniciar ou parar o serve");
+  expect(Guard.forbidden("ps aux | grep -v -f pats.txt -e Cli.ts | xargs kill", lines)).toContain("reiniciar ou parar o serve");
+  expect(Guard.forbidden("ps aux | grep --invert-match --regexp=Cli.ts | xargs kill", lines)).toBeNull();
+  expect(Guard.forbidden("ps aux | grep -A 9 Cli | xargs kill", lines)).toContain("reiniciar ou parar o serve");
+  expect(Guard.forbidden("ps aux | grep bun | xargs kill; grep nosuch notas.txt", lines)).toContain("reiniciar ou parar o serve");
+  // a grep in another command, or after ||, does not filter the ps
+  expect(Guard.forbidden("ps aux | xargs kill; grep -v /srv/ f", lines)).toContain("reiniciar ou parar o serve");
+  expect(Guard.forbidden("ps aux || grep -v /srv/ | xargs kill", lines)).toContain("reiniciar ou parar o serve");
+  expect(Guard.forbidden("kill $(ps aux | grep -v nosuch)", lines)).toContain("reiniciar ou parar o serve");
+  expect(Guard.forbidden("ps aux | grep -v /srv/ | xargs kill", lines)).toBeNull();
 });
 
 // what the serve refuses is said where an agent and the user read it:
