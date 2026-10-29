@@ -22,8 +22,10 @@
 import * as os from "node:os";
 import type { Out } from "./Agent.ts";
 import type { Img } from "./AskAI.ts";
+import * as Client from "./Client.ts";
 import { clip } from "./Clip.ts";
 import type * as config from "./Config.ts";
+import { DeviceEnv } from "./DeviceEnv.ts";
 import { Machine, type Job, type Spec } from "./Machine.ts";
 
 // Types
@@ -391,11 +393,13 @@ export namespace Mcp {
   // -----
 
   // a program in its own process group, a JSON-RPC message a line; its
-  // stderr's tail says why it ended. It gets PASS and its own env; a
-  // line past LIMITS.msg ends it
-  export function stdio(conf: config.McpServer, changed: () => void, died: (why: string) => void): Link {
-    const env = Object.fromEntries(PASS.flatMap((k) => (process.env[k] === undefined ? [] : [[k, process.env[k]!]])));
-    const proc = Bun.spawn([conf.command, ...conf.args], { cwd: conf.cwd || undefined, env: { ...env, ...conf.env }, stdin: "pipe", stdout: "pipe", stderr: "pipe", detached: true });
+  // stderr's tail says why it ended. It gets PASS, then `extra` (the
+  // device list, when this process is the device; reserved names are
+  // dropped), then its own env. A line past LIMITS.msg ends it. The
+  // server passes no list, so a program it starts does not see one
+  export function stdio(conf: config.McpServer, changed: () => void, died: (why: string) => void, extra: unknown = null): Link {
+    const env = DeviceEnv.overlay(process.env, PASS, extra, conf.env);
+    const proc = Bun.spawn([conf.command, ...conf.args], { cwd: conf.cwd || undefined, env, stdin: "pipe", stdout: "pipe", stderr: "pipe", detached: true });
     const waits = new Map<number, { ok: (got: any) => void; no: (err: Error) => void }>();
     let next = 0;
     let dead: string | null = null;
@@ -567,7 +571,8 @@ export namespace Mcp {
       s?.link.close();
       const cwd = String(input.conf.cwd ?? "").replace(/^~(?=\/|$)/, os.homedir());
       const run = { link: null as unknown as Link, changed: false };
-      run.link = Mcp.stdio({ ...input.conf, cwd }, () => (run.changed = true), () => {});
+      const extra = DeviceEnv.cached(Client.DIR + "/" + DeviceEnv.FILE_NAME);
+      run.link = Mcp.stdio({ ...input.conf, cwd }, () => (run.changed = true), () => {}, extra);
       HERE.set(key, (s = run));
     }
     if (s === undefined) {

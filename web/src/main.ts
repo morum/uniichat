@@ -1929,10 +1929,17 @@ async function settings_save(form: HTMLFormElement, page: any, unset: Set<string
     const envOut = await View.post("/api/device-env", { version: page.device_env.version, set: env });
     if (!envOut.ok) {
       go.disabled = false;
-      const at = typeof envOut.key === "string" ? form.querySelector<HTMLElement>(`.set[data-key="${CSS.escape(envOut.key)}"]`) : null;
+      const key = typeof envOut.key === "string" ? envOut.key : "";
+      let at = key === "" ? null : form.querySelector<HTMLElement>(`.set[data-key="${CSS.escape(key)}"]`);
+      if (at === null && key.startsWith("env.")) {
+        at = form.querySelector<HTMLElement>(".env-new");
+      }
       (at?.querySelector(".err") ?? why).textContent = envOut.error ?? "Não foi possível salvar.";
       (at ?? why).scrollIntoView({ block: "center" });
       return;
+    }
+    if (envOut.device_env) {
+      page.device_env = envOut.device_env;
     }
   }
   if (Object.keys(set).length === 0 && Object.keys(keys).length === 0 && profiles === undefined) {

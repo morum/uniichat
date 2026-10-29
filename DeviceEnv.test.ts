@@ -205,6 +205,65 @@ test("take grava a lista e descarta PATH", () => {
   }
 });
 
+test("set null é recusado", async () => {
+  const dir = scratch();
+  const file = dir + "/device-env.json";
+  try {
+    const version = DeviceEnv.shown(file).version;
+    const req = new Request("http://127.0.0.1/api/device-env", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ version, set: null }),
+    });
+    const out = await DeviceEnv.save(req, file);
+    expect(out.status).toBe(400);
+    expect(out.body.error ?? "").toContain("objeto");
+    expect((out.body.error ?? "").includes("null")).toBe(false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("overlay copia só PATH e HOME, a lista, e o env do programa", () => {
+  const base = { PATH: "/bin", HOME: "/tmp/casa", FORA: VALOR };
+  const out = DeviceEnv.overlay(base, ["PATH", "HOME"], { APP_TOKEN: VALOR, PATH: "/evil", HOME: "/evil" }, undefined);
+  expect(out.PATH).toBe("/bin");
+  expect(out.HOME).toBe("/tmp/casa");
+  expect(out.APP_TOKEN).toBe(VALOR);
+  expect(out.FORA).toBeUndefined();
+  const over = DeviceEnv.overlay({ PATH: "/bin" }, ["PATH"], { APP_TOKEN: VALOR }, { APP_TOKEN: "do-programa" });
+  expect(over.APP_TOKEN).toBe("do-programa");
+  expect(over.PATH).toBe("/bin");
+  const none = DeviceEnv.overlay({ PATH: "/bin", APP_TOKEN: VALOR }, ["PATH"], null, undefined);
+  expect(none.PATH).toBe("/bin");
+  expect(none.APP_TOKEN).toBeUndefined();
+});
+
+test("apply no process.env chega ao filho do device", async () => {
+  const name = "APP_PROBE_P160";
+  delete process.env[name];
+  const owned: DeviceEnv.Owned = new Map();
+  const pathBefore = process.env.PATH;
+  const homeBefore = process.env.HOME;
+  try {
+    process.env[name] = "antes";
+    DeviceEnv.apply(process.env, { PATH: "/evil", HOME: "/evil", [name]: VALOR }, owned);
+    expect(process.env.PATH).toBe(pathBefore);
+    expect(process.env.HOME).toBe(homeBefore);
+    expect(process.env[name]).toBe(VALOR);
+    const env = Machine.job_env("Agente");
+    expect(env[name]).toBe(VALOR);
+    expect(env.UNII_AGENT).toBe("Agente");
+    const proc = Bun.spawn(["/bin/sh", "-c", `printf %s "$${name}"`], { env, stdout: "pipe" });
+    expect(await new Response(proc.stdout).text()).toBe(VALOR);
+    DeviceEnv.apply(process.env, {}, owned);
+    expect(process.env[name]).toBe("antes");
+    expect(Machine.job_env("Agente")[name]).toBe("antes");
+  } finally {
+    delete process.env[name];
+  }
+});
+
 test("o filho herda a vari\u00e1vel e o PATH", async () => {
   const base: NodeJS.ProcessEnv = { PATH: "/usr/bin:/bin", HOME: "/tmp/casa-teste" };
   DeviceEnv.apply(base, { APP_TOKEN: VALOR }, new Map());
@@ -219,8 +278,41 @@ test("o filho herda a vari\u00e1vel e o PATH", async () => {
   expect(text).toBe(VALOR);
 });
 
+test("o filho restrito herda a lista e não troca PATH nem HOME", async () => {
+  const base: DeviceEnv.Env = { PATH: "/usr/bin:/bin", HOME: "/tmp/casa-teste", LANG: "C" };
+  const env = DeviceEnv.overlay(base, ["PATH", "HOME", "LANG"], { APP_TOKEN: VALOR, PATH: "/evil", HOME: "/evil", UNII_DIR: "/evil" }, { EXTRA: "1" });
+  expect(env.APP_TOKEN).toBe(VALOR);
+  expect(env.PATH).toBe("/usr/bin:/bin");
+  expect(env.HOME).toBe("/tmp/casa-teste");
+  expect(env.LANG).toBe("C");
+  expect(env.EXTRA).toBe("1");
+  expect(env.UNII_DIR).toBeUndefined();
+  const over = DeviceEnv.overlay(base, ["PATH"], { APP_TOKEN: VALOR }, { APP_TOKEN: "do-programa" });
+  expect(over.APP_TOKEN).toBe("do-programa");
+  expect(over.PATH).toBe("/usr/bin:/bin");
+  const proc = Bun.spawn(["/bin/sh", "-c", "printf %s \"$APP_TOKEN\""], { env, stdout: "pipe" });
+  const text = await new Response(proc.stdout).text();
+  expect(text).toBe(VALOR);
+});
+
+test("cópia ruim não entra no filho restrito", () => {
+  const dir = scratch();
+  const file = dir + "/device-env.json";
+  try {
+    expect(Object.keys(DeviceEnv.cached(file))).toEqual([]);
+    fs.writeFileSync(file, JSON.stringify({ PATH: VALOR }));
+    const bad = DeviceEnv.cached(file);
+    expect(Object.keys(bad)).toEqual([]);
+    expect(JSON.stringify(bad).includes(VALOR)).toBe(false);
+    const env = DeviceEnv.overlay({ PATH: "/bin" }, ["PATH"], bad, undefined);
+    expect(env.PATH).toBe("/bin");
+    expect(env.APP_TOKEN).toBeUndefined();
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 test("o c\u00f3digo novo n\u00e3o cita service.env", () => {
-  for (const name of ["DeviceEnv.ts", "Device.ts", "Server.ts", "Settings.ts", "web/src/main.ts", "web/src/Html.ts"]) {
+  for (const name of ["DeviceEnv.ts", "Device.ts", "Server.ts", "Settings.ts", "Mcp.ts", "web/src/main.ts", "web/src/Html.ts"]) {
     expect(fs.readFileSync(name, "utf8").includes("service.env")).toBe(false);
   }
 });

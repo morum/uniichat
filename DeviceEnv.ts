@@ -184,7 +184,7 @@ export namespace DeviceEnv {
       return refuse(400, "O pedido não é JSON.");
     }
     if (body?.set === null || typeof body?.set !== "object" || Array.isArray(body.set)) {
-      return refuse(400, "Envie set, um objeto de nomes para textos ou null.");
+      return refuse(400, "Envie set, um objeto de nomes para textos.");
     }
     const got = DeviceEnv.load(file);
     if (got.error !== null) {
@@ -268,6 +268,35 @@ export namespace DeviceEnv {
       }
       put(env, name, next[name]);
     }
+  }
+
+  // the list in `file`, or none when the file is missing or bad
+  export function cached(file: string): Rec {
+    const got = DeviceEnv.load(file);
+    return got.error === null ? got.vars : blank();
+  }
+
+  // a child that must not take this process's whole environment: the
+  // `keep` names from `base`, then this list (reserved names dropped),
+  // then `own`, which wins
+  export function overlay(base: Env, keep: readonly string[], extra: unknown, own: Rec | undefined): Env {
+    const out = blank();
+    for (const name of keep) {
+      const value = base[name];
+      if (value !== undefined) {
+        put(out, name, value);
+      }
+    }
+    const list = DeviceEnv.only(extra);
+    for (const name of Object.keys(list)) {
+      put(out, name, list[name]);
+    }
+    if (own !== undefined) {
+      for (const name of Object.keys(own)) {
+        put(out, name, own[name]);
+      }
+    }
+    return out;
   }
 
   // the copy on disk, as the device starts. A bad file applies nothing
