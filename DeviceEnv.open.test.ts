@@ -1,7 +1,9 @@
 // DeviceEnv.open.test
 // ===================
 // Mcp.open is how the server starts a program. The list stays out of
-// that process. Values here are fixtures. Nothing is printed on success.
+// that process. UNII_DIR and SYSTEMD_EXEC_PID are on the parent and on
+// the control list; neither reaches the child. PATH and HOME stay.
+// Values here are fixtures. Nothing is printed on success.
 // The real server on 8788 and the real device are not touched.
 
 import { expect, test } from "bun:test";
@@ -12,6 +14,8 @@ const ROOT = import.meta.dir;
 const PROBE = "APP_OPEN_P160";
 const OWN = "APP_OPEN_OWN_P160";
 const PARENT = "APP_OPEN_PARENT_P160";
+const UNII = "UNII_DIR";
+const SYSTEMD = "SYSTEMD_EXEC_PID";
 
 function scratch(): string {
   const dir = fs.mkdtempSync("/tmp/unii-env-");
@@ -86,6 +90,8 @@ test("Mcp.open deixa device-env.json fora do processo", async () => {
       OWN,
       PARENT,
       PROBE,
+      UNII,
+      SYSTEMD,
     ], {
       cwd: ROOT,
       env: {
@@ -98,6 +104,7 @@ test("Mcp.open deixa device-env.json fora do processo", async () => {
         XDG_CONFIG_HOME: xdg,
         UNII_DIR: data,
         [PARENT]: "1",
+        [SYSTEMD]: "1",
       },
       stdout: "pipe",
       stderr: "pipe",
@@ -129,6 +136,8 @@ test("Mcp.open deixa device-env.json fora do processo", async () => {
       "parent=absent",
       "path=ok",
       "home=ok",
+      "unii=absent",
+      "systemd=absent",
       "open=ok",
       "",
       "code=0",

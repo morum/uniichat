@@ -2,7 +2,9 @@
 // ===================
 // The program Mcp.stdio starts in DeviceEnv.open.probe. It records which
 // names are in its environment (never a value) and then answers the two
-// calls Mcp.open makes, so that start can finish.
+// calls Mcp.open makes, so that start can finish. The names include the
+// list entry, the program's own name, a parent-only name, PATH, HOME, a
+// UNII_ name and a systemd name.
 
 import * as fs from "node:fs";
 
@@ -10,6 +12,8 @@ const dump = process.argv[2] ?? "";
 const probe = process.argv[3] ?? "";
 const own = process.argv[4] ?? "";
 const parent = process.argv[5] ?? "";
+const unii = process.argv[6] ?? "";
+const systemd = process.argv[7] ?? "";
 
 if (dump === "" || !dump.startsWith("/tmp/")) {
   process.exit(1);
@@ -24,6 +28,8 @@ fs.writeFileSync(dump, [
   "parent=" + bit(parent),
   "path=" + (process.env.PATH ? "1" : "0"),
   "home=" + (process.env.HOME ? "1" : "0"),
+  "unii=" + bit(unii),
+  "systemd=" + bit(systemd),
 ].join("\n") + "\n");
 
 const dec = new TextDecoder();

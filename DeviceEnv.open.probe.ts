@@ -4,6 +4,9 @@
 // /tmp (set by DeviceEnv.open.test before this file loads). The list is
 // on disk. Mcp.stdio with that list must show it. Mcp.open, the server's
 // start, must not: it passes no list.
+//
+// The parent has a UNII_ name and a systemd name. The control list carries
+// those same names. Neither child receives them. PATH and HOME stay.
 
 import * as fs from "node:fs";
 import * as Client from "./Client.ts";
@@ -18,6 +21,8 @@ const secretFile = process.argv[6] ?? "";
 const ownName = process.argv[7] ?? "";
 const parentName = process.argv[8] ?? "";
 const probeName = process.argv[9] ?? "";
+const uniiName = process.argv[10] ?? "";
+const systemdName = process.argv[11] ?? "";
 
 function note(text: string): void {
   if (status.startsWith("/tmp/")) {
@@ -34,7 +39,7 @@ function child(dump: string): { name: string; device: string; command: string; a
     name: "probe",
     device: "",
     command: process.execPath,
-    args: [stub, dump, probeName, ownName, parentName],
+    args: [stub, dump, probeName, ownName, parentName, uniiName, systemdName],
     env: { [ownName]: "1" },
     cwd: process.env.HOME ?? "/tmp",
     url: "",
@@ -61,10 +66,43 @@ function field(text: string, key: string): string {
   return match?.[1] ?? "";
 }
 
+function kept(text: string, probeBit: string): boolean {
+  return field(text, "probe") === probeBit
+    && field(text, "own") === "1"
+    && field(text, "parent") === "0"
+    && field(text, "path") === "1"
+    && field(text, "home") === "1"
+    && field(text, "unii") === "0"
+    && field(text, "systemd") === "0";
+}
+
+function reservedNames(): boolean {
+  const whyUnii = DeviceEnv.why(uniiName);
+  const whySystemd = DeviceEnv.why(systemdName);
+  if (whyUnii === null || !whyUnii.includes("Unii") || whySystemd === null || !whySystemd.includes("systemd")) {
+    return false;
+  }
+  return process.env[uniiName] !== undefined && process.env[systemdName] !== undefined;
+}
+
+function listWithReserved(list: { [key: string]: string }): { [key: string]: string } {
+  const extra: { [key: string]: string } = {};
+  for (const name of Object.keys(list)) {
+    extra[name] = list[name];
+  }
+  extra[uniiName] = "1";
+  extra[systemdName] = "1";
+  return extra;
+}
+
 async function main(): Promise<number> {
   const paths = [status, openDump, controlDump, secretFile, process.env.HOME ?? "", process.env.UNII_DIR ?? "", Client.DIR];
   if (paths.some((path) => !underTmp(path)) || !stub.endsWith("/DeviceEnv.open.stub.ts") || !fs.existsSync(stub)) {
     note("fixture=bad\nfora=dir\n");
+    return 1;
+  }
+  if (!reservedNames()) {
+    note("fixture=bad\nnome=livre\n");
     return 1;
   }
   const secret = fs.readFileSync(secretFile, "utf8");
@@ -78,11 +116,16 @@ async function main(): Promise<number> {
     note("fixture=bad\n");
     return 1;
   }
-  const control = Mcp.stdio(child(controlDump), () => {}, () => {}, DeviceEnv.cached(files[0]));
+  const extra = listWithReserved(DeviceEnv.cached(files[0]));
+  if (extra[probeName] !== secret || extra[uniiName] !== "1" || extra[systemdName] !== "1") {
+    note("fixture=bad\nlista=sem\n");
+    return 1;
+  }
+  const control = Mcp.stdio(child(controlDump), () => {}, () => {}, extra);
   const controlText = await waitDump(controlDump);
   control.close();
-  if (field(controlText, "probe") !== "1" || field(controlText, "own") !== "1" || field(controlText, "parent") !== "0") {
-    note("fixture=ok\ncontrol=bad\n");
+  if (controlText.includes(secret) || !kept(controlText, "1")) {
+    note(controlText.includes(secret) ? "fixture=bad\n" : "fixture=ok\ncontrol=bad\n");
     return 1;
   }
   const servers = Mcp.servers(() => {}, [child(openDump)], async () => ({ text: "", fail: true }), () => false);
@@ -110,14 +153,16 @@ async function main(): Promise<number> {
     "parent=" + (field(openText, "parent") === "0" ? "absent" : "present"),
     "path=" + (field(openText, "path") === "1" ? "ok" : "bad"),
     "home=" + (field(openText, "home") === "1" ? "ok" : "bad"),
+    "unii=" + (field(openText, "unii") === "0" ? "absent" : "present"),
+    "systemd=" + (field(openText, "systemd") === "0" ? "absent" : "present"),
     "open=" + open,
   ].join("\n") + "\n";
-  if (text.includes(secret)) {
+  if (text.includes(secret) || openText.includes(secret)) {
     note("fixture=bad\n");
     return 1;
   }
   note(text);
-  const ok = text.includes("probe=absent\n") && text.includes("own=ok\n") && text.includes("parent=absent\n") && text.includes("path=ok\n") && text.includes("home=ok\n") && text.includes("open=ok\n");
+  const ok = text.includes("probe=absent\n") && text.includes("own=ok\n") && text.includes("parent=absent\n") && text.includes("path=ok\n") && text.includes("home=ok\n") && text.includes("unii=absent\n") && text.includes("systemd=absent\n") && text.includes("open=ok\n");
   return ok ? 0 : 1;
 }
 
