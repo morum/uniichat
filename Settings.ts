@@ -17,6 +17,7 @@
 
 import * as fs from "node:fs";
 import * as config from "./Config.ts";
+import { DeviceEnv } from "./DeviceEnv.ts";
 import { LABELS } from "./Pick.ts";
 import { write_whole } from "./Write.ts";
 
@@ -47,8 +48,9 @@ export type Key = { name: string; env: string; from: config.From; tail: string }
 // the page: the files' version, the settings, the keys, the profiles
 // (config.json's, by name, each its models in order; null: set by
 // UNII_PROFILES, not shown); why the page can't save (config.json
-// unreadable; null: it can)
-export type Page = { version: string; settings: Row[]; keys: Key[]; profiles: Record<string, string[]> | null; error: string | null };
+// unreadable; null: it can); the device's variables (names and tails,
+// never values)
+export type Page = { version: string; settings: Row[]; keys: Key[]; profiles: Record<string, string[]> | null; error: string | null; device_env: DeviceEnv.Public };
 
 // a save's answer: its status and body (refused: why, and the setting
 // or "key.<name>" it is about), what it changed (`saved`), and whether
@@ -114,7 +116,7 @@ export namespace Settings {
       return { name, env, from, tail: Settings.tail(key) };
     });
     const profiles = process.env.UNII_PROFILES !== undefined ? null : Settings.profiles(file.profiles) ?? {};
-    return { version: snap.version, settings, keys: shown, profiles, error };
+    return { version: snap.version, settings, keys: shown, profiles, error, device_env: DeviceEnv.shown(config.DIR + "/" + DeviceEnv.FILE_NAME) };
   }
 
   // a key's last characters, as shown: its letters and digits only (a

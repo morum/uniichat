@@ -214,6 +214,12 @@ export namespace Machine {
     }
   }
 
+  // a child process's environment: this process's (the device list
+  // applied to it) plus the marks a stop uses to find the run
+  export function job_env(agent: string, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+    return { ...base, UNII_RUN: RUN, UNII_AGENT: agent };
+  }
+
   // runs a command, in its own process group (detached), every process
   // marked UNII_RUN, its output decoded as one stream (a char split over
   // reads stays whole; a broken one at its end shows) and cut as it
@@ -231,7 +237,7 @@ export namespace Machine {
     const argv = WIN ? [SHELL, "-NoProfile", "-NonInteractive", "-Command", PWSH + command] : [SHELL, "-c", "exec 2>&1\n" + command];
     const proc = Bun.spawn(argv, {
       cwd         : cwd,
-      env         : { ...process.env, UNII_RUN: RUN, UNII_AGENT: agent },
+      env         : Machine.job_env(agent),
       stdin       : "ignore",
       stdout      : "pipe",
       stderr      : WIN ? "pipe" : "ignore",

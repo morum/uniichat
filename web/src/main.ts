@@ -1685,6 +1685,14 @@ function settings_draw(page: any): void {
     unset.delete(el.dataset.key!);
     el.classList.remove("unset");
     el.querySelector(".err")!.textContent = "";
+    const noted = el.querySelector(".env-note");
+    if (noted !== null) {
+      noted.textContent = "";
+    }
+    const del = el.querySelector<HTMLButtonElement>(".env-del");
+    if (del !== null) {
+      del.hidden = false;
+    }
     const value = el.querySelector<HTMLInputElement>("input[type=hidden]");
     if (value !== null) {
       value.value = Html.pick_mend([...el.querySelectorAll("select")].map((s) => s.value), listed("models"), names());
@@ -1695,6 +1703,18 @@ function settings_draw(page: any): void {
     }
   };
   form.onclick = (ev) => {
+    const del = (ev.target as HTMLElement).closest<HTMLButtonElement>(".env-del");
+    if (del !== null) {
+      const row = del.closest<HTMLElement>(".set")!;
+      unset.add(row.dataset.key!);
+      row.classList.add("unset");
+      del.hidden = true;
+      const note = row.querySelector(".env-note");
+      if (note !== null) {
+        note.textContent = "Removida ao salvar.";
+      }
+      return;
+    }
     const btn = (ev.target as HTMLElement).closest<HTMLButtonElement>(".reset");
     if (btn === null) {
       return;
@@ -1815,6 +1835,41 @@ function settings_draw(page: any): void {
   picks();
 }
 
+// the device list the form will send ({}: none; false: the new name is
+// missing). A password left empty does not change the stored value
+function env_changes(form: HTMLFormElement, page: any, unset: Set<string>): Record<string, string | null> | false {
+  const env = page.device_env;
+  if (env == null || env.error != null) {
+    return {};
+  }
+  const set: Record<string, string | null> = {};
+  for (const row of env.rows ?? []) {
+    if (unset.has("env." + row.name)) {
+      set[row.name] = null;
+      continue;
+    }
+    const typed = form.querySelector<HTMLInputElement>(`input[name="env.${row.name}"]`)?.value ?? "";
+    if (typed !== "") {
+      set[row.name] = typed;
+    }
+  }
+  const name = form.querySelector<HTMLInputElement>('input[name="env_new_name"]')?.value.trim() ?? "";
+  const value = form.querySelector<HTMLInputElement>('input[name="env_new_value"]')?.value ?? "";
+  if (name === "" && value === "") {
+    return set;
+  }
+  if (name === "") {
+    const at = form.querySelector<HTMLElement>(".env-new");
+    if (at !== null) {
+      at.querySelector(".err")!.textContent = "Dê um nome à variável.";
+      at.scrollIntoView({ block: "center" });
+    }
+    return false;
+  }
+  set[name] = value;
+  return set;
+}
+
 async function settings_save(form: HTMLFormElement, page: any, unset: Set<string>, listed: (key: string) => string[], profs: Array<[string, string[]]>): Promise<void> {
   const set: Record<string, string | null> = {};
   const keys: Record<string, string | null> = {};
@@ -1858,13 +1913,37 @@ async function settings_save(form: HTMLFormElement, page: any, unset: Set<string
     const was = JSON.stringify(page.profiles);
     profiles = JSON.stringify(Object.fromEntries(now)) === was ? undefined : Object.fromEntries(now);
   }
-  if (Object.keys(set).length === 0 && Object.keys(keys).length === 0 && profiles === undefined) {
+  const env = env_changes(form, page, unset);
+  if (env === false) {
+    return;
+  }
+  const envChanged = Object.keys(env).length > 0;
+  if (Object.keys(set).length === 0 && Object.keys(keys).length === 0 && profiles === undefined && !envChanged) {
     why.textContent = "Nothing changed.";
     return;
   }
   const go = form.querySelector<HTMLButtonElement>(".go")!;
   go.disabled = true;
   why.textContent = "";
+  if (envChanged) {
+    const envOut = await View.post("/api/device-env", { version: page.device_env.version, set: env });
+    if (!envOut.ok) {
+      go.disabled = false;
+      const at = typeof envOut.key === "string" ? form.querySelector<HTMLElement>(`.set[data-key="${CSS.escape(envOut.key)}"]`) : null;
+      (at?.querySelector(".err") ?? why).textContent = envOut.error ?? "Não foi possível salvar.";
+      (at ?? why).scrollIntoView({ block: "center" });
+      return;
+    }
+  }
+  if (Object.keys(set).length === 0 && Object.keys(keys).length === 0 && profiles === undefined) {
+    const fresh = await fetch("/api/settings").then((r) => r.json()).catch(() => null);
+    go.disabled = false;
+    if (fresh?.settings) {
+      settings_draw(fresh);
+    }
+    toast("Salvo.");
+    return;
+  }
   const out = await View.post("/api/settings", { version: page.version, set, keys, ...(profiles === undefined ? {} : { profiles }) });
   go.disabled = false;
   if (!out.ok) {

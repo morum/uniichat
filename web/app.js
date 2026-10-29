@@ -2634,7 +2634,22 @@ function settings_html(page) {
   const save = `<div class="save"><p class="why"></p><button class="chip go"${page.error === null ? "" : " disabled"}>Save</button></div>`;
   const head = `<p class="sub">The server's settings, in config.json in its folder.</p>`;
   const profiles = page.profiles === null ? "" : section_html("Profiles", `<p class="sub">Ranked models: a chat on a profile runs on the first and falls back to the next when one is out.</p><div class="set profiles" data-key="profiles"><div class="field"></div><p class="err"></p></div>`);
-  return head + error + `<form class="settings" autocomplete="off">` + group(GROUPS[0]) + profiles + keys + group(GROUPS[1]) + save + `</form>`;
+  return head + error + `<form class="settings" autocomplete="off">` + group(GROUPS[0]) + profiles + keys + group(GROUPS[1]) + device_env_html(page.device_env) + save + `</form>`;
+}
+function device_env_html(env) {
+  const note = `<p class="sub">O device aplica estas variáveis ao próprio processo na partida e aos processos que ele inicia. O servidor não as usa. O valor não aparece de novo.</p>`;
+  if (env.error !== null) {
+    return section_html("Variáveis do device", note + `<p class="why bad">${esc(env.error)}</p>`);
+  }
+  const row = (r) => {
+    const id = "env-" + r.name;
+    const tail = r.tail === "" ? "Definida" : `Definida, termina em <code>${esc(r.tail)}</code>`;
+    const field = `<input id="${esc(id)}" type="password" name="env.${esc(r.name)}" autocomplete="new-password" placeholder="Novo valor para substituir" spellcheck="false" autocapitalize="off">`;
+    const label = `<label for="${esc(id)}"><code>${esc(r.name)}</code><small>Vale no device depois que ele recebe a lista.</small></label>`;
+    return `<div class="set env" data-key="env.${esc(r.name)}">${label}<div class="field">${field}</div><p class="from">${tail} <button type="button" class="env-del">Remover</button></p><p class="env-note"></p><p class="err"></p></div>`;
+  };
+  const add = `<div class="set env-new" data-key="env-new"><label for="env-new-name">Nova variável<small>O nome começa com letra ou _. Não use PATH, HOME, UNII_ nem variável do systemd.</small></label><div class="field env-add"><input id="env-new-name" name="env_new_name" placeholder="NOME" maxlength="128" spellcheck="false" autocapitalize="off" autocomplete="off"><input id="env-new-value" type="password" name="env_new_value" placeholder="Valor" autocomplete="new-password" spellcheck="false" autocapitalize="off"></div><p class="err"></p></div>`;
+  return section_html("Variáveis do device", note + `<div class="device-env" data-version="${esc(env.version)}">` + env.rows.map(row).join("") + add + `</div>`);
 }
 function offered(vendors, models) {
   return Pick.models(VENDORS.filter((v) => vendors.includes(v)), models).map(([v, m]) => v + ":" + m.label);
@@ -4194,6 +4209,14 @@ function settings_draw(page) {
     unset.delete(el.dataset.key);
     el.classList.remove("unset");
     el.querySelector(".err").textContent = "";
+    const noted = el.querySelector(".env-note");
+    if (noted !== null) {
+      noted.textContent = "";
+    }
+    const del = el.querySelector(".env-del");
+    if (del !== null) {
+      del.hidden = false;
+    }
     const value = el.querySelector("input[type=hidden]");
     if (value !== null) {
       value.value = pick_mend([...el.querySelectorAll("select")].map((s) => s.value), listed("models"), names());
@@ -4204,6 +4227,18 @@ function settings_draw(page) {
     }
   };
   form.onclick = (ev) => {
+    const del = ev.target.closest(".env-del");
+    if (del !== null) {
+      const row = del.closest(".set");
+      unset.add(row.dataset.key);
+      row.classList.add("unset");
+      del.hidden = true;
+      const note = row.querySelector(".env-note");
+      if (note !== null) {
+        note.textContent = "Removida ao salvar.";
+      }
+      return;
+    }
     const btn = ev.target.closest(".reset");
     if (btn === null) {
       return;
@@ -4318,6 +4353,38 @@ function settings_draw(page) {
   profs_draw();
   picks();
 }
+function env_changes(form, page, unset) {
+  const env = page.device_env;
+  if (env == null || env.error != null) {
+    return {};
+  }
+  const set = {};
+  for (const row of env.rows ?? []) {
+    if (unset.has("env." + row.name)) {
+      set[row.name] = null;
+      continue;
+    }
+    const typed = form.querySelector(`input[name="env.${row.name}"]`)?.value ?? "";
+    if (typed !== "") {
+      set[row.name] = typed;
+    }
+  }
+  const name = form.querySelector('input[name="env_new_name"]')?.value.trim() ?? "";
+  const value = form.querySelector('input[name="env_new_value"]')?.value ?? "";
+  if (name === "" && value === "") {
+    return set;
+  }
+  if (name === "") {
+    const at = form.querySelector(".env-new");
+    if (at !== null) {
+      at.querySelector(".err").textContent = "Dê um nome à variável.";
+      at.scrollIntoView({ block: "center" });
+    }
+    return false;
+  }
+  set[name] = value;
+  return set;
+}
 async function settings_save(form, page, unset, listed, profs) {
   const set = {};
   const keys = {};
@@ -4357,13 +4424,37 @@ async function settings_save(form, page, unset, listed, profs) {
     const was = JSON.stringify(page.profiles);
     profiles = JSON.stringify(Object.fromEntries(now)) === was ? undefined : Object.fromEntries(now);
   }
-  if (Object.keys(set).length === 0 && Object.keys(keys).length === 0 && profiles === undefined) {
+  const env = env_changes(form, page, unset);
+  if (env === false) {
+    return;
+  }
+  const envChanged = Object.keys(env).length > 0;
+  if (Object.keys(set).length === 0 && Object.keys(keys).length === 0 && profiles === undefined && !envChanged) {
     why.textContent = "Nothing changed.";
     return;
   }
   const go = form.querySelector(".go");
   go.disabled = true;
   why.textContent = "";
+  if (envChanged) {
+    const envOut = await post("/api/device-env", { version: page.device_env.version, set: env });
+    if (!envOut.ok) {
+      go.disabled = false;
+      const at = typeof envOut.key === "string" ? form.querySelector(`.set[data-key="${CSS.escape(envOut.key)}"]`) : null;
+      (at?.querySelector(".err") ?? why).textContent = envOut.error ?? "Não foi possível salvar.";
+      (at ?? why).scrollIntoView({ block: "center" });
+      return;
+    }
+  }
+  if (Object.keys(set).length === 0 && Object.keys(keys).length === 0 && profiles === undefined) {
+    const fresh = await fetch("/api/settings").then((r) => r.json()).catch(() => null);
+    go.disabled = false;
+    if (fresh?.settings) {
+      settings_draw(fresh);
+    }
+    toast("Salvo.");
+    return;
+  }
   const out = await post("/api/settings", { version: page.version, set, keys, ...profiles === undefined ? {} : { profiles } });
   go.disabled = false;
   if (!out.ok) {

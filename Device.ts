@@ -16,6 +16,7 @@
 import * as child from "node:child_process";
 import * as os from "node:os";
 import * as Client from "./Client.ts";
+import { DeviceEnv } from "./DeviceEnv.ts";
 import { Machine, WIN, type Job } from "./Machine.ts";
 import { Mcp } from "./Mcp.ts";
 import { FRAME, PING, QUIT, RETRY, TICK, WIRE } from "./View.ts";
@@ -35,6 +36,9 @@ export async function run(given: string | undefined): Promise<void> {
   const url = Client.server(given, conf);
   const name = String(conf.name ?? HOST);
   const work = String(conf.work ?? WORK);
+  const cache = Client.DIR + "/" + DeviceEnv.FILE_NAME;
+  const owned: DeviceEnv.Owned = new Map();
+  DeviceEnv.boot(process.env, cache, owned);
   let token: string | undefined = conf.url === url ? conf.token : undefined;
   if (!await Client.signed(url, token)) {
     token = await Client.login(url, "the device " + name);
@@ -61,7 +65,9 @@ export async function run(given: string | undefined): Promise<void> {
         return;
       }
       const msg = JSON.parse(String(ev.data));
-      if (msg.$ === "job" && !jobs.has(msg.id) && ![...outs.values()].some((o: any) => o.job === msg.id)) {
+      if (msg.$ === "env") {
+        DeviceEnv.take(process.env, msg.vars, owned, cache);
+      } else if (msg.$ === "job" && !jobs.has(msg.id) && ![...outs.values()].some((o: any) => o.job === msg.id)) {
         job(msg.id, msg.job);
       } else if (msg.$ === "jobs") {
         jobs.forEach((abort, id) => msg.ids.includes(id) || abort.abort());

@@ -193,6 +193,14 @@ newest release. The installer also moves data from older versions.
    `systemctl --user enable --now unii-device` (and `loginctl
    enable-linger` to run it while you're logged out).
 
+   The device's environment variables are set on the Settings page
+   (Variáveis do device). The server stores them in `device-env.json`
+   (mode 0600) in its data dir and does not put them in its own process
+   or in a log. A device applies the last list it received as it starts,
+   and again when the server sends a new one. Every process it starts
+   inherits that. PATH, HOME, `UNII_*` and systemd's variables are refused.
+   A value is not shown again.
+
    A shell call has a time limit: `timeout` seconds, 600 by default, 3600
    at most. Past it, its process group gets SIGTERM, then SIGKILL 5 s
    later, and the call answers its output so far, ending `(timed out

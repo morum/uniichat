@@ -31,6 +31,7 @@ import { Owner } from "./Owner.ts";
 import { Pick } from "./Pick.ts";
 import { Push } from "./Push.ts";
 import { Reap } from "./Reap.ts";
+import { DeviceEnv } from "./DeviceEnv.ts";
 import { Settings } from "./Settings.ts";
 import { INSTALL } from "./Update.ts";
 import { write_whole } from "./Write.ts";
@@ -1250,8 +1251,29 @@ export namespace Chat {
     Chat.all(chat, Chat.state(chat));
   }
 
+  // the device list, on this socket (a device's; a view has no host)
+  export function env_one(sock: Sock): void {
+    const msg = DeviceEnv.wire(config.DIR + "/" + DeviceEnv.FILE_NAME);
+    if (msg !== null && sock.data.host !== null) {
+      Chat.send(sock, msg);
+    }
+  }
+
+  // the same list, to every device connected now
+  export function env_push(chat: Chat): void {
+    const msg = DeviceEnv.wire(config.DIR + "/" + DeviceEnv.FILE_NAME);
+    if (msg === null) {
+      return;
+    }
+    chat.socks.forEach((sock) => {
+      if (sock.data.host !== null) {
+        Chat.send(sock, msg);
+      }
+    });
+  }
+
   // a view joins on the chat as it is now; a device is attached (told
-  // its name if its host's was taken)
+  // its name if its host's was taken) and sent the device list
   export function join(chat: Chat, sock: Sock): void {
     const { tab, host, work, shell } = sock.data;
     chat.socks.add(sock);
@@ -1266,6 +1288,7 @@ export namespace Chat {
     if (sock.data.device !== host) {
       Chat.send(sock, { $: "note", text: host + " was taken: Unii calls this computer " + sock.data.device + "." });
     }
+    Chat.env_one(sock);
   }
 
   // a socket closed; a device goes only if it quit (a link lost is no
@@ -1733,6 +1756,9 @@ export namespace Main {
       case "/api/settings": {
         return await Main.settings(req);
       }
+      case "/api/device-env": {
+        return await Main.device_env(req);
+      }
     }
     const file = Memory.image_file(mem, p.slice("/image/".length));
     const keep = { "cache-control": "private, max-age=31536000, immutable" };
@@ -1942,6 +1968,26 @@ export namespace Main {
     }
     if (out.wrote) {
       Chat.offer(Main.chat);
+    }
+    return Response.json(out.body, { status: out.status, headers: fresh });
+  }
+
+  // the device's variables (DeviceEnv.ts): a GET lists names and tails,
+  // a POST changes them. A value is never logged. Connected devices get
+  // the list on the socket they already authenticated
+  export async function device_env(req: Request): Promise<Response> {
+    const fresh = { "cache-control": "no-store" };
+    const file = config.DIR + "/" + DeviceEnv.FILE_NAME;
+    if (req.method === "GET") {
+      return Response.json(DeviceEnv.shown(file), { headers: fresh });
+    }
+    if (req.method !== "POST") {
+      return new Response("as variáveis do device são lidas ou salvas", { status: 405 });
+    }
+    const out = await DeviceEnv.save(req, file);
+    if (out.names.length > 0) {
+      console.log(DeviceEnv.saved_line(out.names));
+      Chat.env_push(Main.chat);
     }
     return Response.json(out.body, { status: out.status, headers: fresh });
   }

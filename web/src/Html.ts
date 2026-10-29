@@ -635,7 +635,26 @@ export function settings_html(page: Page): string {
   const save = `<div class="save"><p class="why"></p><button class="chip go"${page.error === null ? "" : " disabled"}>Save</button></div>`;
   const head = `<p class="sub">The server's settings, in config.json in its folder.</p>`;
   const profiles = page.profiles === null ? "" : section_html("Profiles", `<p class="sub">Ranked models: a chat on a profile runs on the first and falls back to the next when one is out.</p><div class="set profiles" data-key="profiles"><div class="field"></div><p class="err"></p></div>`);
-  return head + error + `<form class="settings" autocomplete="off">` + group(GROUPS[0]) + profiles + keys + group(GROUPS[1]) + save + `</form>`;
+  return head + error + `<form class="settings" autocomplete="off">` + group(GROUPS[0]) + profiles + keys + group(GROUPS[1]) + device_env_html(page.device_env) + save + `</form>`;
+}
+
+// the device's variables (DeviceEnv.ts): names and tails, a password
+// field to replace a value, remove, and one empty row to add. A value
+// already stored is not in the markup
+function device_env_html(env: Page["device_env"]): string {
+  const note = `<p class="sub">O device aplica estas variáveis ao próprio processo na partida e aos processos que ele inicia. O servidor não as usa. O valor não aparece de novo.</p>`;
+  if (env.error !== null) {
+    return section_html("Variáveis do device", note + `<p class="why bad">${esc(env.error)}</p>`);
+  }
+  const row = (r: Page["device_env"]["rows"][number]) => {
+    const id = "env-" + r.name;
+    const tail = r.tail === "" ? "Definida" : `Definida, termina em <code>${esc(r.tail)}</code>`;
+    const field = `<input id="${esc(id)}" type="password" name="env.${esc(r.name)}" autocomplete="new-password" placeholder="Novo valor para substituir" spellcheck="false" autocapitalize="off">`;
+    const label = `<label for="${esc(id)}"><code>${esc(r.name)}</code><small>Vale no device depois que ele recebe a lista.</small></label>`;
+    return `<div class="set env" data-key="env.${esc(r.name)}">${label}<div class="field">${field}</div><p class="from">${tail} <button type="button" class="env-del">Remover</button></p><p class="env-note"></p><p class="err"></p></div>`;
+  };
+  const add = `<div class="set env-new" data-key="env-new"><label for="env-new-name">Nova variável<small>O nome começa com letra ou _. Não use PATH, HOME, UNII_ nem variável do systemd.</small></label><div class="field env-add"><input id="env-new-name" name="env_new_name" placeholder="NOME" maxlength="128" spellcheck="false" autocapitalize="off" autocomplete="off"><input id="env-new-value" type="password" name="env_new_value" placeholder="Valor" autocomplete="new-password" spellcheck="false" autocapitalize="off"></div><p class="err"></p></div>`;
+  return section_html("Variáveis do device", note + `<div class="device-env" data-version="${esc(env.version)}">` + env.rows.map(row).join("") + add + `</div>`);
 }
 
 // the models the vendors and models checked offer, as "vendor:model"
